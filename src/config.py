@@ -1,0 +1,46 @@
+
+class RasterParams:
+    FNF_MAX_X = 3600
+    FNF_MAX_Y = 3600
+    #FNF_MAX_X = 900
+    #FNF_MAX_Y = 900
+
+    SRTM_MAX_X = 3601
+    SRTM_MAX_Y = 3601
+
+    LST_MAX_X = 3601
+    LST_MAX_Y = 3601
+    #LST_MAX_X = 900
+    #LST_MAX_Y = 900
+
+class DatasetConfig:
+    DATASET_POSITION_MAX_OFFSET_X = 20
+    DATASET_POSITION_MAX_OFFSET_Y = 20
+    DATASET_POSITION_OFFSET_TRIES = 5
+
+    DATASET_LST_BANDS_USED = 12
+
+    UPSAMPLE_RATE = 30
+    UPSAMPLE_PERCERTAGE = 5
+
+    BALANCED_PERCENTAGE = 10
+
+class SamplesConfig:
+    PATCH_SIZE = 9
+    TEST_PERCENTAGE = 0.10
+    VALIDATION_PERCENTAGE = 0.2
+
+class NetworkParameters:
+    BATCH_SIZE = 512
+    EPOCHS = 15
+
+class TestParameters:
+    FULL_SIZE_BATCH_SIZE = 4096
+
+class NormParameters:
+    ELEVATION_MIN = 0.0
+    ELEVATION_MAX = 8000.0
+    REFLECTION_MIN = 0.0
+    REFLECTION_MAX = 1.0
+    RADIANCE_MIN = 233.0
+    RADIANCE_MAX = 343.0
