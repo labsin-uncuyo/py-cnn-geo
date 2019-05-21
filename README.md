@@ -704,3 +704,48 @@ Copying nodata values from source ../data/raw/train/1/LC08_L1TP_MERGE_B11_H_WGS_
 Removing previous files
 All the Landsat files found were SRTM-shaped
 ```
+
+### FNF Shaping
+
+The FNF file have different pixel size than the SRTM raster. Then a pixel resizing is required. The following script needs to be executed to perform the job:
+
+```console
+foo@bar:preprocessing$ python3 fnf_to_srtm_shaper.py -s ../data/raw/train/1/
+Entering to the FNF to SRTM shaper
+Working with SRTM file ../data/raw/train/1/SRTM_S26W053.tif
+Changing FNF raster with name FNF_S25W053_17_C_F02DAR
+Transforming GeoTIF file...
+Input file size is 4500, 4500
+0...10...20...30...40...50...60...70...80...90...100 - done.
+Modifying pixel size to [0.0002777777777777778, -0.0002777777777777778]
+Copying color table from ../data/raw/train/1/FNF_S25W053_17_C_F02DAR.tif to new file.
+Creating output file that is 3600P x 3600L.
+Processing input file ../data/raw/train/1/FNF_S25W053_17_C_F02DAR.tif.
+Warning 1: Input file ../data/raw/train/1/FNF_S25W053_17_C_F02DAR.tif has a color table, which will likely lead to bad results when using a resampling method other than nearest neighbour or mode. Converting the dataset prior to 24/32 bit is advised.
+0...10...20...30...40...50...60...70...80...90...100 - done.
+Removing previous files
+Removing hdr or tar file
+The FNF file found was SRTM-shaped
+```
+
+### FNF Binarizing
+The FNF raster have values for forest, no-forest and water pixels. In our project we convert the water pixels to no-forest in order to obtain a binary mask of forest/no-forest. The following script does the required job:
+
+```console
+foo@bar:preprocessing$ python3 fnf_to_srtm_shaper.py -s ../data/raw/train/1/
+Entering to the FNF to SRTM shaper
+Working with SRTM file ../data/raw/train/1/SRTM_S26W053.tif
+Changing FNF raster with name FNF_S25W053_17_C_F02DAR
+Transforming GeoTIF file...
+Input file size is 4500, 4500
+0...10...20...30...40...50...60...70...80...90...100 - done.
+Modifying pixel size to [0.0002777777777777778, -0.0002777777777777778]
+Copying color table from ../data/raw/train/1/FNF_S25W053_17_C_F02DAR.tif to new file.
+Creating output file that is 3600P x 3600L.
+Processing input file ../data/raw/train/1/FNF_S25W053_17_C_F02DAR.tif.
+Warning 1: Input file ../data/raw/train/1/FNF_S25W053_17_C_F02DAR.tif has a color table, which will likely lead to bad results when using a resampling method other than nearest neighbour or mode. Converting the dataset prior to 24/32 bit is advised.
+0...10...20...30...40...50...60...70...80...90...100 - done.
+Removing previous files
+Removing hdr or tar file
+The FNF file found was SRTM-shaped
+```
