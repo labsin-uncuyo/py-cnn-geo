@@ -267,7 +267,7 @@ The script to perform this task is executed by the following command:
 - For train:
 
 ```console
-foo@bar:1$ python3 balanced_factor_indexer.py -s ../data/raw/train/ -t upsample
+foo@bar:/workspace/py-cnn-geo/src/dataset$ python3 balanced_factor_indexer.py -s ../data/raw/train/ -t upsample
 Preparing for balanced downsampler indexer by factor
 Working with dataset folder ../data/raw/train/
 Folders to work with:  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
@@ -285,11 +285,44 @@ Done!
 For test:
 
 ```console
-foo@bar:1$ python3 balanced_factor_indexer.py -s ../data/raw/test/ -x
+foo@bar:/workspace/py-cnn-geo/src/dataset$ python3 balanced_factor_indexer.py -s ../data/raw/test/ -x
 Preparing for balanced downsampler indexer by factor
 Working with dataset folder ../data/raw/test/
 Folders to work with:  ['13']
 All folders were loaded
 Done!
 ```
+
+## Model generation and training
+
+To create and train a CNN model, the following script needs to be executed, providing the training samples location indexes file from the previous step:
+
+```console
+foo@bar:/workspace/py-cnn-geo/src$ python3 network_manager.py -k data/processed/train-balanced-upsample-10p/ -n my_network
+Using TensorFlow backend.
+Entering network manager
+Working with dataset file data/processed/train-balanced-upsample-10p/
+['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+Loading dataset folder  1
+Loading dataset folder  2
+Loading dataset folder  3
+...
+Loading dataset folder  12
+< Tensorflow notifications >
+2019-05-22 15:29:40.560056: I tensorflow/stream_executor/dso_loader.cc:152] successfully opened CUDA library libcublas.so.10.0 locally
+Epoch 1/15
+31520/31520 [==============================] - 330s 10ms/step - loss: 0.3755 - acc: 0.8318 - val_loss: 0.3609 - val_acc: 0.8395
+
+Epoch 00001: saving model to storage/temp/my_network-weights-improvement-01-0.3609-0.8395.hdf5
+...
+Epoch 15/15
+31520/31520 [==============================] - 328s 10ms/step - loss: 0.3305 - acc: 0.8536 - val_loss: 0.3328 - val_acc: 0.8519
+
+Epoch 00015: saving model to storage/temp/my_network-weights-improvement-15-0.3328-0.8519.hdf5
+Saved model to disk
+```
+
+The model structure and weights are stored under the src/storage/ directory with names my_network.json and my_network_0.8539.h5 respectively. Also, each train epoch resulting weights are stored under the src/storage/temp folder in order to recover training sessions from different epochs. However, this last feature is not implemented yet.
+
+## Model load and testing
 
