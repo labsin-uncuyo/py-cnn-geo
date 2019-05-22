@@ -256,3 +256,39 @@ https://github.com/labsin-uncuyo/py-cnn-geo/tree/master/src/preprocessing
 
 ## Dataset generation
 
+To create the data-cubes required for training, an algorithm was created to randomly pick different locations of forest and no-forest points in the zones and conform the following processes and files:
+
+- A processed folder is created in the data directory where the training and testing processed data is stored.
+- For both, training and testing data, each zone is processed creating a file with the input cube of data composed by the preprocessed SRTM raster and Landsat 8 bands, and a gt matrix containing the labels (forest or no-forest) for each pixel in the input data cube. This data is stored in a file with name dataset.npz. Also, an index file is created were the locations of the different pixels for each label is stored. This data is stored in the file idxs.npz.
+- For training data only, another file is created containing a random selection of locations from the index files of all the training zones. This selection is limited by a percentage of data to be retrieved, so the percentage of the data to be used for training can be defined, but assuring a random selection of the training samples. This information is stored in a file with name samples_shuffled_factor_idx.npz
+
+The script to perform this task is executed by the following command:
+
+- For train:
+
+´´´ console
+python3 balanced_factor_indexer.py -s ../data/raw/train/ -t upsample
+Preparing for balanced downsampler indexer by factor
+Working with dataset folder ../data/raw/train/
+Folders to work with:  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+Checking number of indexes...
+All folders were loaded
+Number of indexes for No Forest: 89657415
+Number of indexes for Forest: 65862587
+Copying and appending index values...
+Shuffling No Forest indexes...
+Shuffling Forest indexes...
+Storing data...
+Done!
+´´´
+
+For test:
+
+´´´ console
+python3 balanced_factor_indexer.py -s ../data/raw/test/ -x
+Preparing for balanced downsampler indexer by factor
+Working with dataset folder ../data/raw/test/
+Folders to work with:  ['13']
+All folders were loaded
+Done!
+´´´
