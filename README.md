@@ -249,3 +249,10 @@ Bellow there's a table describing the different files involved in the contructio
   </tbody>
 </table>
 
+## Preprocessing
+Preprocessing steps can be found in the following link:
+
+https://github.com/labsin-uncuyo/py-cnn-geo/tree/master/src/preprocessing
+
+## Dataset generation
+
