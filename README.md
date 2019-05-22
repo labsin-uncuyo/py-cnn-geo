@@ -266,8 +266,8 @@ The script to perform this task is executed by the following command:
 
 - For train:
 
-´´´ console
-python3 balanced_factor_indexer.py -s ../data/raw/train/ -t upsample
+```console
+foo@bar:1$ python3 balanced_factor_indexer.py -s ../data/raw/train/ -t upsample
 Preparing for balanced downsampler indexer by factor
 Working with dataset folder ../data/raw/train/
 Folders to work with:  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
@@ -280,15 +280,16 @@ Shuffling No Forest indexes...
 Shuffling Forest indexes...
 Storing data...
 Done!
-´´´
+```
 
 For test:
 
-´´´ console
-python3 balanced_factor_indexer.py -s ../data/raw/test/ -x
+```console
+foo@bar:1$ python3 balanced_factor_indexer.py -s ../data/raw/test/ -x
 Preparing for balanced downsampler indexer by factor
 Working with dataset folder ../data/raw/test/
 Folders to work with:  ['13']
 All folders were loaded
 Done!
-´´´
+```
+
