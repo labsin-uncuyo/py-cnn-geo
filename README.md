@@ -282,7 +282,7 @@ Storing data...
 Done!
 ```
 
-For test:
+- For test:
 
 ```console
 foo@bar:/workspace/py-cnn-geo/src/dataset$ python3 balanced_factor_indexer.py -s ../data/raw/test/ -x
