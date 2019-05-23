@@ -83,7 +83,8 @@ def binaryzeFNF(fnf_filename):
         colorTable.SetColorEntry(2, null_colorEntry)
         colorTable.SetColorEntry(3, null_colorEntry)
 
-        fnf_handler.src_filehandler.GetRasterBand(1).SetColorTable(colorTable)
+        #this line is giving some problems in docker... we can omit it
+        #fnf_handler.src_filehandler.GetRasterBand(1).SetColorTable(colorTable)
 
         print('Saving changes and storing...')
         fnf_handler.src_Z = fnf_np_array

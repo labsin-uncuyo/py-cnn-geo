@@ -29,6 +29,7 @@ OPERATION_CREATE_NETWORK_WITH_GENERATOR = 31
 OPERATION_TRAIN_NETWORK = 40
 OPERATION_TEST_NETWORK = 50
 OPERATION_TEST_FULLSIZE_NETWORK = 60
+OPERATION_TEST = 70
 OPERATION_PLAY = 99
 
 
@@ -46,14 +47,16 @@ def main(argv):
     model_file = ''
     weights_file = ''
     network_name = ''
+    dataset_file = ''
+    tif_sample = ''
 
     operation = None
     include_validation = False
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:c:k:tr:tef:n:p",
+        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:tr:tef:n:p",
                                    ["create_sample=", "divide_sample=", "create_network=", "create_network_gen=",
-                                    "train_network=", "test_fullsize=", "network_name=", "play"])
+                                    "train_network=", "test=", "tif_sample=", "test_fullsize=", "network_name=", "play"])
     except getopt.GetoptError:
         print('network_manager.py -h')
         sys.exit(2)
@@ -77,6 +80,9 @@ def main(argv):
         elif opt in ["-k", "--create_network_gen"]:
             dataset_folder = arg
             operation = OPERATION_CREATE_NETWORK_WITH_GENERATOR
+        elif opt in ["-z", "--test"]:
+            dataset_file = arg
+            operation = OPERATION_TEST
         elif opt in ["-tef", "--test_fullsize"]:
             opt_args = arg.split('&')
             model_file = opt_args[0]
@@ -88,6 +94,8 @@ def main(argv):
             operation = OPERATION_PLAY
         elif opt in ["-n", "--network_name"]:
             network_name = arg
+        elif opt in ["-e", "--tif_sample"]:
+            tif_sample = arg
 
     print('Working with dataset file %s' % dataset_folder)
 
@@ -189,6 +197,8 @@ def main(argv):
 
     elif operation == OPERATION_TEST_FULLSIZE_NETWORK:
         test_load_fullsize(model_file, weights_file, dataset_folder)
+    elif operation == OPERATION_TEST:
+        test(network_name, dataset_file, tif_sample)
     elif operation == OPERATION_PLAY:
         play4()
 
@@ -445,6 +455,81 @@ def train_network(model, x_train, y_train, batch_size, epochs, x_val, y_val, net
 
     return model, accuracy_history.acc[-1]
 
+def test(model_name, dataset_file, tif_sample):
+    model_design_file = [f for f in listdir('storage') if f == model_name+'.json']
+    model_weights_file = [f for f in listdir('storage') if f.startswith(model_name) and f.endswith('.h5')]
+
+    assert(len(model_design_file) == 1)
+    assert(len(model_weights_file) == 1)
+    json_file = open(join("storage", model_design_file[0]), 'r')
+    loaded_model_json = json_file.read()
+    json_file.close()
+    loaded_model = model_from_json(loaded_model_json)
+    # load weights into new model
+    loaded_model.load_weights(join("storage", model_weights_file[0]))
+
+    print("Loaded model from disk")
+
+    # evaluate loaded model on test data
+    loaded_model.compile(loss=keras.losses.binary_crossentropy, optimizer=keras.optimizers.Adam(), metrics=['accuracy'])
+
+    bigdata = None
+    item_getter = itemgetter('bigdata')
+    with np.load(dataset_file) as df:
+        bigdata = item_getter(df)
+
+    # bigdata_clip = bigdata[:, :900, :900]
+    bigdata_clip = bigdata[:, :RasterParams.FNF_MAX_X, :RasterParams.FNF_MAX_Y]
+
+    pad_amount = int(SamplesConfig.PATCH_SIZE / 2)
+    bigdata_clip = np.pad(bigdata_clip, [(0, 0), (pad_amount, pad_amount), (pad_amount, pad_amount)], mode='constant')
+
+    fnf_handler = GTiffHandler()
+    # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
+    fnf_handler.readFile(tif_sample)
+
+    predict_generator = SortedPredictGenerator(NetworkParameters.BATCH_SIZE, bigdata_clip)
+
+    start = time.time()
+    predict_mask = loaded_model.predict_generator(generator=predict_generator, steps=int(
+        (RasterParams.FNF_MAX_X * RasterParams.FNF_MAX_Y) / NetworkParameters.BATCH_SIZE) + 1, use_multiprocessing=True,
+                                                  verbose=1)
+    predict_mask = np.argmax(predict_mask, axis=1)
+    predict_mask = predict_mask.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
+    end = time.time()
+    print(end - start)
+
+
+    bigdata_gt = None
+    item_getter = itemgetter('bigdata_gt')
+    with np.load(dataset_file) as df:
+        bigdata_gt = item_getter(df)
+
+    bigdata_gt_clip = bigdata_gt
+
+    error_mask = np.logical_xor(predict_mask, bigdata_gt_clip)
+
+    temp_pred = predict_mask.reshape(predict_mask.shape[0] * predict_mask.shape[1])
+    temp_gt = bigdata_gt_clip.reshape(bigdata_gt_clip.shape[0] * bigdata_gt_clip.shape[1])
+
+    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']))
+
+    plt.show()
+
+    print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
+
+    unique, counts = np.unique(error_mask, return_counts=True)
+    print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
+
+    np.savez_compressed('storage/confusion_matrix.npz', cm=cm)
+
+    fnf_handler.src_Z = predict_mask
+    fnf_handler.writeNewFile('storage/test_' + model_name + '_prediction.tif')
+
+    fnf_handler.src_Z = error_mask
+    fnf_handler.writeNewFile('storage/test_' + model_name + '_error.tif')
+
+    fnf_handler.closeFile()
 
 def test_load_fullsize(model_filename, weights_filename, dataset_folder):
     json_file = open(model_filename, 'r')
