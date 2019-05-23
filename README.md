@@ -261,6 +261,10 @@ Preprocessing steps can be found in the following link:
 
 https://github.com/labsin-uncuyo/py-cnn-geo/tree/master/src/preprocessing
 
+A preprocessed dataset can be obtained in the following link:
+
+https://github.com/labsin-uncuyo/py-cnn-geo/tree/master/src/data
+
 ## Dataset generation
 
 To create the data-cubes required for training, an algorithm was created to randomly pick different locations of forest and no-forest points in the zones and conform the following processes and files:
