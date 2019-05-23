@@ -1,6 +1,13 @@
 # py-cnn-geo
 CNN architecture for Forest-No Forest mask generation based on SRTM and Landsat-8 information.
 
+## Environment
+A working environment under Ubuntu 18.02 LTS can be obtained by building and running the docker file under the folder src/dockers. This docker is based on the docker-keras build proposed by the Keras team:
+
+https://github.com/keras-team/keras/tree/master/docker
+
+Remember to accomodate the user id and linked folders in the Dockerfile and Makefile according to your linux user and project folders respectively.
+
 ## Dataset
 Bellow there's a table describing the different files involved in the contruction of each zone of the dataset, the coverage, number of points for each class, and usage of the zone (training or testing).
 
@@ -322,7 +329,7 @@ Epoch 00015: saving model to storage/temp/my_network-weights-improvement-15-0.33
 Saved model to disk
 ```
 
-The model structure and weights are stored under the src/storage/ directory with names my_network.json and my_network_0.8539.h5 respectively. Also, each train epoch resulting weights are stored under the src/storage/temp folder in order to recover training sessions from different epochs. However, this last feature is not implemented yet.
+The model structure and weights are stored under the src/storage/ directory with names my_network.json and my_network_0.8519.h5 respectively. Also, each train epoch resulting weights are stored under the src/storage/temp folder in order to recover training sessions from different epochs. However, this last feature is not implemented yet.
 
 ## Model load and testing
 
