@@ -1,12 +1,16 @@
 import gdal
 import sys, gc
 import getopt
+import redis
+import time
 import numpy as np
 from os import listdir, makedirs
 from os.path import isfile, join, exists
 from operator import itemgetter
 from natsort import natsorted
-from config import DatasetConfig, RasterParams, NormParameters
+from config import DatasetConfig, RasterParams
+from dataset.threads.band_analyzer_thread import BandAnalyzerThread
+from dataset.threads.sample_selector_thread_status import SampleSelectorThreadStatus
 
 TACTIC_UPSAMPLE = 'upsample'
 TACTIC_DOWNSAMPLE = 'downsample'
@@ -289,6 +293,10 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
             item_counter_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions+1), dtype=np.uint32)
             item_counter_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions+1), dtype=np.uint32)
+
+
+
+
             for i, idx_file in enumerate(percentage_idxs_files):
                 path_to_idx = join(storage_folder, percentage_idxs_folder[0], idx_file)
                 print('Processing idx file %s' % path_to_idx)
@@ -298,15 +306,42 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                 with np.load(path_to_idx) as df:
                     iter_bigdata_idx_0, iter_bigdata_idx_1 = item_getter(df)
 
-                for item in iter_bigdata_idx_0:
-                    for band in range(DatasetConfig.DATASET_LST_BANDS_USED):
-                        bucket = bigdata[item[0]][band][item[1]][item[2]]
-                        item_counter_0[i][band][bucket] += 1
+                redises = []
+                threads = list()
+                band_analyzers = []
 
-                for item in iter_bigdata_idx_1:
-                    for band in range(DatasetConfig.DATASET_LST_BANDS_USED):
-                        bucket = bigdata[item[0]][band][item[1]][item[2]]
-                        item_counter_1[i][band][bucket] += 1
+                for band in range(DatasetConfig.DATASET_LST_BANDS_USED):
+                    redis_db = redis.Redis(db=band)
+                    redis_db.delete('item_counter_0', 'item_counter_1', 'status')
+                    redises.append(redis_db)
+
+                    band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, iter_bigdata_idx_0, iter_bigdata_idx_1, partitions, band)
+                    band_analyzers.append(band_analyzer)
+
+                    t = band_analyzer
+                    threads.append(t)
+                    t.start()
+
+                all_thread_processed = False
+                thrds_processed = [False for t_i in range(len(threads))]
+
+                while not all_thread_processed:
+                    #progress_bar(redises, stdscr)
+
+                    for thrd in range(len(threads)):
+                        if redises[thrd].get('status').decode('utf-8') == SampleSelectorThreadStatus.STATUS_DONE:
+                            if not thrds_processed[thrd]:
+                                item_counter_0[i][thrd][:] = redises[thrd].get('item_counter_0').decode('utf-8').split(';')
+                                item_counter_1[i][thrd][:] = redises[thrd].get('item_counter_1').decode('utf-8').split(';')
+                                thrds_processed[thrd] = True
+
+                    all_thread_processed = True
+                    for elem in thrds_processed:
+                        if not elem:
+                            all_thread_processed = False
+
+                    if not all_thread_processed:
+                        time.sleep(1)
 
             n_item_counter_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
             n_item_counter_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
