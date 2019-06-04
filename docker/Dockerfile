@@ -18,8 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       software-properties-common \
       python3-software-properties \
       libgdal-dev \
-#      gdal=2.3.2 \
-#      python3-gdal=2.3.2.4 \
       gdb \
       python3.6-dbg \
       redis \
@@ -110,3 +108,5 @@ ENV PYTHONPATH='/src/:$PYTHONPATH'
 WORKDIR /workspace
 
 EXPOSE 8888
+
+CMD jupyter notebook --port=8888 --ip=0.0.0.0
