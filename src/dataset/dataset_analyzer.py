@@ -17,6 +17,7 @@ TACTIC_DOWNSAMPLE = 'downsample'
 
 OPERATION_CREATE = 1000
 OPERATION_ANALYZE = 2000
+OPERATION_FULLANALYZE = 2500
 OPERATION_MIX = 3000
 
 
@@ -41,9 +42,9 @@ def main(argv):
     partitions = 20
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:t:camb:e:j:i:p:",
-                                   ["dataset_folder=", "storage_folder=", "tactic=", "create", "analyze", "mix",
-                                    "begin=", "end=", "jump=", "iterations=", "partitions="])
+        opts, args = getopt.getopt(argv, "hs:d:t:cafmb:e:j:i:p:",
+                                   ["dataset_folder=", "storage_folder=", "tactic=", "create", "analyze",
+                                    "full_analyze", "mix", "begin=", "end=", "jump=", "iterations=", "partitions="])
     except getopt.GetoptError:
         print(
             'balanced_factor_indexer.py -s <dataset_folder> -d <storage_folder> -t {upsample/downsample} -m -b <beginning_percentage> -e <ending_percentage -j <jump_between_samples> -i <number_of_iterations> -p <partition_bins>')
@@ -66,9 +67,11 @@ def main(argv):
             operation = OPERATION_CREATE
         elif opt in ["-a", "--analyze"]:
             operation = OPERATION_ANALYZE
+        elif opt in ["-f", "--full_analyze"]:
+            operation = OPERATION_FULLANALYZE
         elif opt in ["-m", "--mix"]:
             operation = OPERATION_MIX
-        elif opt in ["b", "--beginning"]:
+        elif opt in ["-b", "--beginning"]:
             beginning = int(arg)
         elif opt in ["-e", "--ending"]:
             ending = int(arg)
@@ -85,6 +88,8 @@ def main(argv):
         indexes_creator(dataset_folder, tactic, storage_folder, beginning, ending, jump, iterations)
     elif operation == OPERATION_ANALYZE or operation == OPERATION_MIX:
         dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, partitions)
+    elif operation == OPERATION_FULLANALYZE or operation == OPERATION_MIX:
+        full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions)
 
     sys.exit()
 
@@ -276,7 +281,7 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
     partition_range = 2.0 / partitions
 
-    bigdata = np.divide(np.add(bigdata, 1.0),partition_range)
+    bigdata = np.divide(np.add(bigdata, 1.0), partition_range)
     gc.collect()
     bigdata = bigdata.astype(np.uint32)
     for percentage in range(beginning, ending, jump):
@@ -291,11 +296,12 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
             percentage_idxs_files = natsorted(percentage_idxs_files, key=lambda y: y.lower())
 
-            item_counter_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions+1), dtype=np.uint32)
-            item_counter_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions+1), dtype=np.uint32)
-
-
-
+            item_counter_0 = np.zeros(
+                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1),
+                dtype=np.uint32)
+            item_counter_1 = np.zeros(
+                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1),
+                dtype=np.uint32)
 
             for i, idx_file in enumerate(percentage_idxs_files):
                 path_to_idx = join(storage_folder, percentage_idxs_folder[0], idx_file)
@@ -315,7 +321,8 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                     redis_db.delete('item_counter_0', 'item_counter_1', 'status')
                     redises.append(redis_db)
 
-                    band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, iter_bigdata_idx_0, iter_bigdata_idx_1, partitions, band)
+                    band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, iter_bigdata_idx_0, iter_bigdata_idx_1,
+                                                       partitions, band)
                     band_analyzers.append(band_analyzer)
 
                     t = band_analyzer
@@ -326,13 +333,15 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                 thrds_processed = [False for t_i in range(len(threads))]
 
                 while not all_thread_processed:
-                    #progress_bar(redises, stdscr)
+                    # progress_bar(redises, stdscr)
 
                     for thrd in range(len(threads)):
                         if redises[thrd].get('status').decode('utf-8') == SampleSelectorThreadStatus.STATUS_DONE:
                             if not thrds_processed[thrd]:
-                                item_counter_0[i][thrd][:] = redises[thrd].get('item_counter_0').decode('utf-8').split(';')
-                                item_counter_1[i][thrd][:] = redises[thrd].get('item_counter_1').decode('utf-8').split(';')
+                                item_counter_0[i][thrd][:] = redises[thrd].get('item_counter_0').decode('utf-8').split(
+                                    ';')
+                                item_counter_1[i][thrd][:] = redises[thrd].get('item_counter_1').decode('utf-8').split(
+                                    ';')
                                 thrds_processed[thrd] = True
 
                     all_thread_processed = True
@@ -343,23 +352,214 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                     if not all_thread_processed:
                         time.sleep(1)
 
-            n_item_counter_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
-            n_item_counter_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
+            n_item_counter_0 = np.zeros(
+                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
+            n_item_counter_1 = np.zeros(
+                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
 
-            n_item_counter_0[:,:,0:partitions-1] = item_counter_0[:,:,0:partitions-1]
-            n_item_counter_0[:,:,partitions-1] = item_counter_0[:,:,partitions-1] + item_counter_0[:,:,partitions]
+            n_item_counter_0[:, :, 0:partitions - 1] = item_counter_0[:, :, 0:partitions - 1]
+            n_item_counter_0[:, :, partitions - 1] = item_counter_0[:, :, partitions - 1] + item_counter_0[:, :,
+                                                                                            partitions]
 
-            del(item_counter_0)
+            del (item_counter_0)
 
-            n_item_counter_1[:,:,0:partitions-1] = item_counter_1[:,:,0:partitions-1]
-            n_item_counter_1[:,:,partitions-1] = item_counter_1[:,:,partitions-1] + item_counter_1[:,:,partitions]
+            n_item_counter_1[:, :, 0:partitions - 1] = item_counter_1[:, :, 0:partitions - 1]
+            n_item_counter_1[:, :, partitions - 1] = item_counter_1[:, :, partitions - 1] + item_counter_1[:, :,
+                                                                                            partitions]
 
-            del(item_counter_1)
+            del (item_counter_1)
 
             analysis_cntr_path = join(storage_folder, percentage_idxs_folder[0],
-                                     "{:02d}_{:02d}_histogram_info.npz".format(percentage, partitions))
+                                      "{:02d}_{:02d}_histogram_info.npz".format(percentage, partitions))
             print('Storing data: ' + analysis_cntr_path)
             np.savez_compressed(analysis_cntr_path, item_counter_0=n_item_counter_0, item_counter_1=n_item_counter_1)
+
+    print('Done!')
+
+
+def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
+    print('Retrieving datasets...')
+
+    rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
+
+    rasters_folders = natsorted(rasters_folders, key=lambda y: y.lower())
+
+    bigdata = np.zeros(shape=(len(rasters_folders), DatasetConfig.DATASET_LST_BANDS_USED, RasterParams.SRTM_MAX_X,
+                              RasterParams.SRTM_MAX_Y), dtype=np.float32)
+
+    for i, pck in enumerate(rasters_folders):
+        path_to_pck = join(dataset_folder, pck, 'dataset.npz')
+
+        print('Loading dataset folder ', pck)
+
+        pck_bigdata = None
+        item_getter = itemgetter('bigdata')
+        with np.load(path_to_pck) as df:
+            pck_bigdata = item_getter(df)
+
+        bigdata[i] = pck_bigdata
+
+        del pck_bigdata
+
+        gc.collect()
+
+    print('Checking number of indexes...')
+    cnt_idx_0 = 0
+    cnt_idx_1 = 0
+    for i, pck in enumerate(rasters_folders):
+        path_to_pck = join(dataset_folder, pck, 'idxs.npz')
+        pck_data_idx_0 = pck_data_idx_1 = None
+        item_getter = itemgetter('bigdata_idx_0', 'bigdata_idx_1')
+        with np.load(path_to_pck) as df:
+            pck_data_idx_0, pck_data_idx_1 = item_getter(df)
+
+        cnt_idx_0 += pck_data_idx_0.shape[0]
+        cnt_idx_1 += pck_data_idx_1.shape[0]
+
+    forest_dominance = False if cnt_idx_0 > cnt_idx_1 else True
+
+    class_total = 0
+    if tactic == TACTIC_UPSAMPLE:
+        if not forest_dominance:
+            class_total = cnt_idx_0
+        else:
+            class_total = cnt_idx_1
+    else:
+        if not forest_dominance:
+            class_total = cnt_idx_1
+        else:
+            class_total = cnt_idx_0
+
+    # Retrieving all indexes from the different zones and putting them in memory
+
+    bigdata_idx_0 = np.empty(shape=(cnt_idx_0 + 1, 3), dtype=np.uint16)
+    bigdata_idx_1 = np.empty(shape=(cnt_idx_1 + 1, 3), dtype=np.uint16)
+
+    print('Number of indexes for No Forest: %s' % (str(len(bigdata_idx_0))))
+    print('Number of indexes for Forest: %s' % (str(len(bigdata_idx_1))))
+
+    print('Copying and appending index values...')
+
+    current_0_idx = 0
+    current_1_idx = 0
+    for i, pck in enumerate(rasters_folders):
+        path_to_pck = join(dataset_folder, pck, 'idxs.npz')
+
+        pck_bigdata_idx_0 = pck_bigdata_idx_1 = None
+        item_getter = itemgetter('bigdata_idx_0', 'bigdata_idx_1')
+        with np.load(path_to_pck) as df:
+            pck_bigdata_idx_0, pck_bigdata_idx_1 = item_getter(df)
+
+        bigdata_idx_0[current_0_idx:current_0_idx + len(pck_bigdata_idx_0), 1:] = pck_bigdata_idx_0
+        bigdata_idx_1[current_1_idx:current_1_idx + len(pck_bigdata_idx_1), 1:] = pck_bigdata_idx_1
+        bigdata_idx_0[current_0_idx:current_0_idx + len(pck_bigdata_idx_0), 0] = i
+        bigdata_idx_1[current_1_idx:current_1_idx + len(pck_bigdata_idx_1), 0] = i
+
+        current_0_idx += len(pck_bigdata_idx_0)
+        current_1_idx += len(pck_bigdata_idx_1)
+
+    upsample_required = False
+    if tactic == TACTIC_UPSAMPLE:
+        if not forest_dominance:
+            if class_total > cnt_idx_1:
+                upsample_required = True
+                upsample_amount = class_total - cnt_idx_1
+        else:
+            if class_total > cnt_idx_0:
+                upsample_required = True
+                upsample_amount = class_total - cnt_idx_0
+
+    if upsample_required:
+        if not forest_dominance:
+            if upsample_amount / cnt_idx_1 > 1:
+                repetitions = int(upsample_amount / cnt_idx_1)
+                print('Upsampling Forest indexes %s times' % (str(repetitions)))
+
+                if repetitions > 0:
+                    bigdata_idx_1 = bigdata_idx_1.repeat(repetitions, axis=0)
+
+            left_to_complete = upsample_amount % cnt_idx_1
+
+            if left_to_complete > 0:
+                bigdata_idx_1 = np.append(bigdata_idx_1, bigdata_idx_1[:left_to_complete], axis=0)
+        else:
+            if upsample_amount / cnt_idx_0 > 1:
+                repetitions = int(upsample_amount / cnt_idx_0)
+                print('Upsampling No Forest indexes %s times' % (str(repetitions)))
+
+                if repetitions > 0:
+                    bigdata_idx_0 = bigdata_idx_0.repeat(repetitions, axis=0)
+
+            left_to_complete = upsample_amount % cnt_idx_0
+
+            if left_to_complete > 0:
+                bigdata_idx_0 = np.append(bigdata_idx_0, bigdata_idx_0[:left_to_complete], axis=0)
+
+    print('Procesing full dataset distribution sampled index files...\n')
+
+    partition_range = 2.0 / partitions
+
+    bigdata = np.divide(np.add(bigdata, 1.0), partition_range)
+    gc.collect()
+    bigdata = bigdata.astype(np.uint32)
+
+    item_counter_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1), dtype=np.uint32)
+    item_counter_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1), dtype=np.uint32)
+
+    redises = []
+    threads = list()
+    band_analyzers = []
+
+    for band in range(DatasetConfig.DATASET_LST_BANDS_USED):
+        redis_db = redis.Redis(db=band)
+        redis_db.delete('item_counter_0', 'item_counter_1', 'status')
+        redises.append(redis_db)
+
+        band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, bigdata_idx_0, bigdata_idx_1,
+                                           partitions, band)
+        band_analyzers.append(band_analyzer)
+
+        t = band_analyzer
+        threads.append(t)
+        t.start()
+
+    all_thread_processed = False
+    thrds_processed = [False for t_i in range(len(threads))]
+
+    while not all_thread_processed:
+        # progress_bar(redises, stdscr)
+
+        for thrd in range(len(threads)):
+            if redises[thrd].get('status').decode('utf-8') == SampleSelectorThreadStatus.STATUS_DONE:
+                if not thrds_processed[thrd]:
+                    item_counter_0[thrd][:] = redises[thrd].get('item_counter_0').decode('utf-8').split(';')
+                    item_counter_1[thrd][:] = redises[thrd].get('item_counter_1').decode('utf-8').split(';')
+                    thrds_processed[thrd] = True
+
+        all_thread_processed = True
+        for elem in thrds_processed:
+            if not elem:
+                all_thread_processed = False
+
+        if not all_thread_processed:
+            time.sleep(1)
+
+    n_item_counter_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
+    n_item_counter_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
+
+    n_item_counter_0[:, :, 0:partitions - 1] = item_counter_0[:, :, 0:partitions - 1]
+    n_item_counter_0[:, :, partitions - 1] = item_counter_0[:, :, partitions - 1] + item_counter_0[:, :, partitions]
+
+    del item_counter_0
+
+    n_item_counter_1[:, :, 0:partitions - 1] = item_counter_1[:, :, 0:partitions - 1]
+    n_item_counter_1[:, :, partitions - 1] = item_counter_1[:, :, partitions - 1] + item_counter_1[:, :, partitions]
+
+    del item_counter_1
+
+    analysis_cntr_path = join(storage_folder, "full_{:02d}_histogram_info.npz".format(partitions))
+    print('Storing data: ' + analysis_cntr_path)
+    np.savez_compressed(analysis_cntr_path, item_counter_0=n_item_counter_0, item_counter_1=n_item_counter_1)
 
 
 main(sys.argv[1:])
