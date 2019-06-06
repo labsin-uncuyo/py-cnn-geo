@@ -548,13 +548,13 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
     n_item_counter_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
     n_item_counter_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
 
-    n_item_counter_0[:, :, 0:partitions - 1] = item_counter_0[:, :, 0:partitions - 1]
-    n_item_counter_0[:, :, partitions - 1] = item_counter_0[:, :, partitions - 1] + item_counter_0[:, :, partitions]
+    n_item_counter_0[:, 0:partitions - 1] = item_counter_0[:, 0:partitions - 1]
+    n_item_counter_0[:, partitions - 1] = item_counter_0[:, partitions - 1] + item_counter_0[:, partitions]
 
     del item_counter_0
 
-    n_item_counter_1[:, :, 0:partitions - 1] = item_counter_1[:, :, 0:partitions - 1]
-    n_item_counter_1[:, :, partitions - 1] = item_counter_1[:, :, partitions - 1] + item_counter_1[:, :, partitions]
+    n_item_counter_1[:, 0:partitions - 1] = item_counter_1[:, 0:partitions - 1]
+    n_item_counter_1[:, partitions - 1] = item_counter_1[:, partitions - 1] + item_counter_1[:, partitions]
 
     del item_counter_1
 
