@@ -1,5 +1,6 @@
 import gdal
 import sys, gc
+sys.path.append("..")
 import getopt
 import redis
 import time
