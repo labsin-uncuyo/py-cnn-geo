@@ -1,5 +1,6 @@
 import gdal
 import sys, gc
+
 sys.path.append("..")
 import getopt
 import redis
@@ -21,6 +22,7 @@ OPERATION_CREATE = 1000
 OPERATION_ANALYZE = 2000
 OPERATION_FULLANALYZE = 2500
 OPERATION_MIX = 3000
+OPERATION_SUMMARIZE = 4000
 
 
 def main(argv):
@@ -44,9 +46,10 @@ def main(argv):
     partitions = 20
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:t:cafmb:e:j:i:p:",
+        opts, args = getopt.getopt(argv, "hs:d:t:cafmob:e:j:i:p:",
                                    ["dataset_folder=", "storage_folder=", "tactic=", "create", "analyze",
-                                    "full_analyze", "mix", "begin=", "end=", "jump=", "iterations=", "partitions="])
+                                    "full_analyze", "mix", "out", "begin=", "end=", "jump=", "iterations=",
+                                    "partitions="])
     except getopt.GetoptError:
         print(
             'balanced_factor_indexer.py -s <dataset_folder> -d <storage_folder> -t {upsample/downsample} -m -b <beginning_percentage> -e <ending_percentage -j <jump_between_samples> -i <number_of_iterations> -p <partition_bins>')
@@ -73,6 +76,8 @@ def main(argv):
             operation = OPERATION_FULLANALYZE
         elif opt in ["-m", "--mix"]:
             operation = OPERATION_MIX
+        elif opt in ["-o", "--summarize"]:
+            operation = OPERATION_SUMMARIZE
         elif opt in ["-b", "--beginning"]:
             beginning = int(arg)
         elif opt in ["-e", "--ending"]:
@@ -88,10 +93,12 @@ def main(argv):
 
     if operation == OPERATION_CREATE or operation == OPERATION_MIX:
         indexes_creator(dataset_folder, tactic, storage_folder, beginning, ending, jump, iterations)
-    elif operation == OPERATION_ANALYZE or operation == OPERATION_MIX:
-        dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, partitions)
-    elif operation == OPERATION_FULLANALYZE or operation == OPERATION_MIX:
+    if operation == OPERATION_FULLANALYZE or operation == OPERATION_MIX:
         full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions)
+    if operation == OPERATION_ANALYZE or operation == OPERATION_MIX:
+        dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, partitions)
+    if operation == OPERATION_SUMMARIZE or operation == OPERATION_MIX:
+        analysis_summarizer(storage_folder, beginning, ending, jump)
 
     sys.exit()
 
@@ -305,18 +312,30 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
             percentage_idxs_files = natsorted(percentage_idxs_files, key=lambda y: y.lower())
 
-            t_values_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_values_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_edges_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_edges_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_percentages_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_percentages_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_rel_err_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_rel_err_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
-            t_err_mean_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
-            t_err_mean_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
-            t_err_median_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
-            t_err_median_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
+            t_values_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                  dtype=object)
+            t_values_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                  dtype=object)
+            t_edges_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                 dtype=object)
+            t_edges_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                 dtype=object)
+            t_percentages_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                       dtype=object)
+            t_percentages_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                       dtype=object)
+            t_rel_err_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                   dtype=object)
+            t_rel_err_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                   dtype=object)
+            t_err_mean_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                    dtype=np.float64)
+            t_err_mean_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                    dtype=np.float64)
+            t_err_median_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                      dtype=np.float64)
+            t_err_median_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                      dtype=np.float64)
 
             for i, idx_file in enumerate(percentage_idxs_files):
                 path_to_idx = join(storage_folder, percentage_idxs_folder[0], idx_file)
@@ -367,7 +386,8 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                                                           "band_{:02d}_cls_{:02d}_histogram_err.npz".format(thrd, 0))
                                 item_getter = itemgetter('rel_err', 'err_mean', 'err_median')
                                 with np.load(analysis_band_path) as df:
-                                    t_rel_err_0[i, thrd], t_err_mean_0[i, thrd], t_err_median_0[i, thrd] = item_getter(df)
+                                    t_rel_err_0[i, thrd], t_err_mean_0[i, thrd], t_err_median_0[i, thrd] = item_getter(
+                                        df)
 
                                 execution = subprocess.run(['rm', analysis_band_path])
 
@@ -601,6 +621,47 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
     print('Storing data: ' + analysis_cntr_path)
     np.savez_compressed(analysis_cntr_path, values_0=values_0, values_1=values_1, edges_0=edges_0, edges_1=edges_1,
                         percentages_0=percentages_0, percentages_1=percentages_1)
+
+
+def analysis_summarizer(storage_folder, beginning, ending, jump):
+    for percentage in range(beginning, ending, jump):
+        print('Starting with percentage %d' % percentage)
+        percentage_idxs_folder = [d for d in listdir(storage_folder) if
+                                  not isfile(join(storage_folder, d)) and str(d).endswith("{:02d}p".format(percentage))]
+
+        analysis_cntr_path = join(storage_folder, percentage_idxs_folder[0],
+                                  "{:02d}_histogram_err.npz".format(percentage))
+        print('Retrieving data: ' + analysis_cntr_path)
+
+        err_mean_0 = err_mean_1 = err_median_0 = err_median_1 = None
+        item_getter = itemgetter('err_mean_0', 'err_mean_1', 'err_median_0', 'err_median_1')
+        with np.load(analysis_cntr_path) as df:
+            err_mean_0, err_mean_1, err_median_0, err_median_1 = item_getter(df)
+
+        '''print('Mean errors of different samples for class 0:\n', err_mean_0)
+        print('Mean errors of different samples for class 1:\n', err_mean_1)
+        print('Median errors of different samples for class 0:\n', err_median_0)
+        print('Median errors of different samples for class 1:\n', err_median_0)'''
+        mean_err_samples = [np.mean(err_mean_0[:, f]) for f in range(err_mean_0.shape[1])]
+        print('Mean error for percentage %d%%, class %02d:\n' % (percentage, 0),
+              np.array2string(np.array(mean_err_samples), separator='%; ',
+                              formatter={'float_kind': lambda x: "%.03f" % x}, max_line_width=sys.maxsize).strip(
+                  '[').replace(']', '%'))
+        mean_err_samples = [np.mean(err_mean_1[:, f]) for f in range(err_mean_1.shape[1])]
+        print('Mean error for percentage %d%%, class %02d:\n' % (percentage, 1),
+              np.array2string(np.array(mean_err_samples), separator='%; ',
+                              formatter={'float_kind': lambda x: "%.03f" % x}, max_line_width=sys.maxsize).strip(
+                  '[').replace(']', '%'))
+        median_err_samples = [np.median(err_median_0[:, f]) for f in range(err_median_0.shape[1])]
+        print('Median error for percentage %d%%, class %02d:\n' % (percentage, 0),
+              np.array2string(np.array(median_err_samples), separator='%; ',
+                              formatter={'float_kind': lambda x: "%.03f" % x}, max_line_width=sys.maxsize).strip(
+                  '[').replace(']', '%'))
+        median_err_samples = [np.median(err_median_1[:, f]) for f in range(err_median_1.shape[1])]
+        print('Median error for percentage %d%%, class %02d:\n' % (percentage, 1),
+              np.array2string(np.array(median_err_samples), separator='%; ',
+                              formatter={'float_kind': lambda x: "%.03f" % x}, max_line_width=sys.maxsize).strip(
+                  '[').replace(']', '%'), '\n\n')
 
 
 main(sys.argv[1:])
