@@ -4,6 +4,7 @@ sys.path.append("..")
 import getopt
 import redis
 import time
+import subprocess
 import numpy as np
 from os import listdir, makedirs
 from os.path import isfile, join, exists
@@ -278,13 +279,20 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
         gc.collect()
 
+    values_0 = values_1 = edges_0 = edges_1 = percentages_0 = percentages_1 = None
+    analysis_cntr_path = join(storage_folder, "full_histogram_info.npz")
+    item_getter = itemgetter('values_0', 'values_1', 'edges_0', 'edges_1', 'percentages_0', 'percentages_1')
+    with np.load(analysis_cntr_path) as df:
+        values_0, values_1, edges_0, edges_1, percentages_0, percentages_1 = item_getter(df)
+
     print('Procesing percentage sampled index files...\n')
 
-    partition_range = 2.0 / partitions
+    '''partition_range = 2.0 / partitions
 
     bigdata = np.divide(np.add(bigdata, 1.0), partition_range)
     gc.collect()
-    bigdata = bigdata.astype(np.uint32)
+    bigdata = bigdata.astype(np.uint32)'''
+
     for percentage in range(beginning, ending, jump):
         print('Starting with percentage %d' % percentage)
         percentage_idxs_folder = [d for d in listdir(storage_folder) if
@@ -297,12 +305,18 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
             percentage_idxs_files = natsorted(percentage_idxs_files, key=lambda y: y.lower())
 
-            item_counter_0 = np.zeros(
-                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1),
-                dtype=np.uint32)
-            item_counter_1 = np.zeros(
-                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1),
-                dtype=np.uint32)
+            t_values_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_values_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_edges_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_edges_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_percentages_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_percentages_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_rel_err_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_rel_err_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+            t_err_mean_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
+            t_err_mean_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
+            t_err_median_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
+            t_err_median_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,), dtype=np.float64)
 
             for i, idx_file in enumerate(percentage_idxs_files):
                 path_to_idx = join(storage_folder, percentage_idxs_folder[0], idx_file)
@@ -319,11 +333,13 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
                 for band in range(DatasetConfig.DATASET_LST_BANDS_USED):
                     redis_db = redis.Redis(db=band)
-                    redis_db.delete('item_counter_0', 'item_counter_1', 'status')
+                    redis_db.delete('status')
                     redises.append(redis_db)
 
                     band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, iter_bigdata_idx_0, iter_bigdata_idx_1,
-                                                       partitions, band)
+                                                       band, join(storage_folder, percentage_idxs_folder[0]),
+                                                       edges_0=edges_0, values_0=values_0, percentages_0=percentages_0,
+                                                       edges_1=edges_1, values_1=values_1, percentages_1=percentages_1)
                     band_analyzers.append(band_analyzer)
 
                     t = band_analyzer
@@ -339,10 +355,39 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                     for thrd in range(len(threads)):
                         if redises[thrd].get('status').decode('utf-8') == SampleSelectorThreadStatus.STATUS_DONE:
                             if not thrds_processed[thrd]:
-                                item_counter_0[i][thrd][:] = redises[thrd].get('item_counter_0').decode('utf-8').split(
-                                    ';')
-                                item_counter_1[i][thrd][:] = redises[thrd].get('item_counter_1').decode('utf-8').split(
-                                    ';')
+                                analysis_band_path = join(storage_folder,
+                                                          "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 0))
+                                item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
+                                with np.load(analysis_band_path) as df:
+                                    t_values_0[i, thrd], t_edges_0[i, thrd], t_percentages_0[i, thrd] = item_getter(df)
+
+                                execution = subprocess.run(['rm', analysis_band_path])
+
+                                analysis_band_path = join(storage_folder,
+                                                          "band_{:02d}_cls_{:02d}_histogram_err.npz".format(thrd, 0))
+                                item_getter = itemgetter('rel_err', 'err_mean', 'err_median')
+                                with np.load(analysis_band_path) as df:
+                                    t_rel_err_0[i, thrd], t_err_mean_0[i, thrd], t_err_median_0[i, thrd] = item_getter(df)
+
+                                execution = subprocess.run(['rm', analysis_band_path])
+
+                                analysis_band_path = join(storage_folder,
+                                                          "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 1))
+                                item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
+                                with np.load(analysis_band_path) as df:
+                                    t_values_1[i, thrd], t_edges_1[i, thrd], t_percentages_1[i, thrd] = item_getter(df)
+
+                                execution = subprocess.run(['rm', analysis_band_path])
+
+                                analysis_band_path = join(storage_folder,
+                                                          "band_{:02d}_cls_{:02d}_histogram_err.npz".format(thrd, 1))
+                                item_getter = itemgetter('rel_err', 'err_mean', 'err_median')
+                                with np.load(analysis_band_path) as df:
+                                    t_rel_err_1[i, thrd], t_err_mean_1[i, thrd], t_err_median_1[i, thrd] = item_getter(
+                                        df)
+
+                                execution = subprocess.run(['rm', analysis_band_path])
+
                                 thrds_processed[thrd] = True
 
                     all_thread_processed = True
@@ -353,27 +398,17 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                     if not all_thread_processed:
                         time.sleep(1)
 
-            n_item_counter_0 = np.zeros(
-                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
-            n_item_counter_1 = np.zeros(
-                shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
-
-            n_item_counter_0[:, :, 0:partitions - 1] = item_counter_0[:, :, 0:partitions - 1]
-            n_item_counter_0[:, :, partitions - 1] = item_counter_0[:, :, partitions - 1] + item_counter_0[:, :,
-                                                                                            partitions]
-
-            del (item_counter_0)
-
-            n_item_counter_1[:, :, 0:partitions - 1] = item_counter_1[:, :, 0:partitions - 1]
-            n_item_counter_1[:, :, partitions - 1] = item_counter_1[:, :, partitions - 1] + item_counter_1[:, :,
-                                                                                            partitions]
-
-            del (item_counter_1)
-
             analysis_cntr_path = join(storage_folder, percentage_idxs_folder[0],
-                                      "{:02d}_{:02d}_histogram_info.npz".format(percentage, partitions))
+                                      "{:02d}_histogram_info.npz".format(percentage))
             print('Storing data: ' + analysis_cntr_path)
-            np.savez_compressed(analysis_cntr_path, item_counter_0=n_item_counter_0, item_counter_1=n_item_counter_1)
+            np.savez_compressed(analysis_cntr_path, values_0=t_values_0, values_1=t_values_1, edges_0=t_edges_0,
+                                edges_1=t_edges_1, percentages_0=t_percentages_0, percentages_1=t_percentages_1)
+            analysis_cntr_path = join(storage_folder, percentage_idxs_folder[0],
+                                      "{:02d}_histogram_err.npz".format(percentage))
+            print('Storing data: ' + analysis_cntr_path)
+            np.savez_compressed(analysis_cntr_path, rel_err_0=t_rel_err_0, rel_err_1=t_rel_err_1,
+                                err_mean_0=t_err_mean_0, err_mean_1=t_err_mean_1, err_median_0=t_err_median_0,
+                                err_median_1=t_err_median_1)
 
     print('Done!')
 
@@ -498,14 +533,18 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
 
     print('Procesing full dataset distribution sampled index files...\n')
 
-    partition_range = 2.0 / partitions
+    '''partition_range = 2.0 / partitions
 
     bigdata = np.divide(np.add(bigdata, 1.0), partition_range)
     gc.collect()
-    bigdata = bigdata.astype(np.uint32)
+    bigdata = bigdata.astype(np.uint32)'''
 
-    item_counter_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1), dtype=np.uint32)
-    item_counter_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions + 1), dtype=np.uint32)
+    values_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+    values_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+    edges_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+    edges_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+    percentages_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
+    percentages_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED,), dtype=object)
 
     redises = []
     threads = list()
@@ -513,11 +552,10 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
 
     for band in range(DatasetConfig.DATASET_LST_BANDS_USED):
         redis_db = redis.Redis(db=band)
-        redis_db.delete('item_counter_0', 'item_counter_1', 'status')
+        redis_db.delete('status')
         redises.append(redis_db)
 
-        band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, bigdata_idx_0, bigdata_idx_1,
-                                           partitions, band)
+        band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, bigdata_idx_0, bigdata_idx_1, band, storage_folder)
         band_analyzers.append(band_analyzer)
 
         t = band_analyzer
@@ -533,8 +571,22 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
         for thrd in range(len(threads)):
             if redises[thrd].get('status').decode('utf-8') == SampleSelectorThreadStatus.STATUS_DONE:
                 if not thrds_processed[thrd]:
-                    item_counter_0[thrd][:] = redises[thrd].get('item_counter_0').decode('utf-8').split(';')
-                    item_counter_1[thrd][:] = redises[thrd].get('item_counter_1').decode('utf-8').split(';')
+                    analysis_band_path = join(storage_folder,
+                                              "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 0))
+                    item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
+                    with np.load(analysis_band_path) as df:
+                        values_0[thrd], edges_0[thrd], percentages_0[thrd] = item_getter(df)
+
+                    execution = subprocess.run(['rm', analysis_band_path])
+
+                    analysis_band_path = join(storage_folder,
+                                              "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 1))
+                    item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
+                    with np.load(analysis_band_path) as df:
+                        values_1[thrd], edges_1[thrd], percentages_1[thrd] = item_getter(df)
+
+                    execution = subprocess.run(['rm', analysis_band_path])
+
                     thrds_processed[thrd] = True
 
         all_thread_processed = True
@@ -545,22 +597,10 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
         if not all_thread_processed:
             time.sleep(1)
 
-    n_item_counter_0 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
-    n_item_counter_1 = np.zeros(shape=(DatasetConfig.DATASET_LST_BANDS_USED, partitions), dtype=np.uint32)
-
-    n_item_counter_0[:, 0:partitions - 1] = item_counter_0[:, 0:partitions - 1]
-    n_item_counter_0[:, partitions - 1] = item_counter_0[:, partitions - 1] + item_counter_0[:, partitions]
-
-    del item_counter_0
-
-    n_item_counter_1[:, 0:partitions - 1] = item_counter_1[:, 0:partitions - 1]
-    n_item_counter_1[:, partitions - 1] = item_counter_1[:, partitions - 1] + item_counter_1[:, partitions]
-
-    del item_counter_1
-
-    analysis_cntr_path = join(storage_folder, "full_{:02d}_histogram_info.npz".format(partitions))
+    analysis_cntr_path = join(storage_folder, "full_histogram_info.npz")
     print('Storing data: ' + analysis_cntr_path)
-    np.savez_compressed(analysis_cntr_path, item_counter_0=n_item_counter_0, item_counter_1=n_item_counter_1)
+    np.savez_compressed(analysis_cntr_path, values_0=values_0, values_1=values_1, edges_0=edges_0, edges_1=edges_1,
+                        percentages_0=percentages_0, percentages_1=percentages_1)
 
 
 main(sys.argv[1:])
