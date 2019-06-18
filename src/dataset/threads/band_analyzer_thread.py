@@ -36,15 +36,16 @@ class BandAnalyzerThread(multiprocessing.Process):
         for i, item in enumerate(self.iter_bigdata_idx_0):
             items[i] = self.bigdata[item[0]][self.band][item[1]][item[2]]
 
-        h_values, h_edges = np.histogram(items, bins=('fd' if self.edges_0 is None else self.edges_0))
+        sel_bins = 'fd' if self.edges_0 is None else self.edges_0[self.band]
+        h_values, h_edges = np.histogram(items, bins=sel_bins)
 
-        h_percentages = np.multiply(np.divide(h_values[h_values != 0] if self.values_0 is None else h_values[self.values_0 != 0], items.shape[0]), 100.0)
+        h_percentages = np.multiply(np.divide(h_values[h_values != 0] if self.values_0 is None else h_values[self.values_0[self.band] != 0], items.shape[0]), 100.0)
 
         analysis_band_path = join(self.storage_folder, "band_{:02d}_cls_{:02d}_histogram_info.npz".format(self.band, 0))
         np.savez_compressed(analysis_band_path, h_values=h_values, h_edges=h_edges, h_percentages=h_percentages)
 
         if self.percentages_0 is not None:
-            rel_err = np.abs(self.percentages_0 - h_percentages) / self.percentages_0
+            rel_err = np.abs(self.percentages_0[self.band] - h_percentages) / self.percentages_0[self.band]
 
             err_mean = np.mean(rel_err*100)
             err_median = np.median(rel_err*100)
@@ -58,17 +59,18 @@ class BandAnalyzerThread(multiprocessing.Process):
         for i, item in enumerate(self.iter_bigdata_idx_1):
             items[i] = self.bigdata[item[0]][self.band][item[1]][item[2]]
 
-        h_values, h_edges = np.histogram(items, bins=('fd' if self.edges_1 is None else self.edges_1))
+        sel_bins = 'fd' if self.edges_1 is None else self.edges_1[self.band]
+        h_values, h_edges = np.histogram(items, bins=sel_bins)
 
         h_percentages = np.multiply(
-            np.divide(h_values[h_values != 0] if self.values_1 is None else h_values[self.values_1 != 0],
+            np.divide(h_values[h_values != 0] if self.values_1 is None else h_values[self.values_1[self.band] != 0],
                       items.shape[0]), 100.0)
 
         analysis_band_path = join(self.storage_folder, "band_{:02d}_cls_{:02d}_histogram_info.npz".format(self.band, 1))
         np.savez_compressed(analysis_band_path, h_values=h_values, h_edges=h_edges, h_percentages=h_percentages)
 
         if self.percentages_1 is not None:
-            rel_err = np.abs(self.percentages_1 - h_percentages) / self.percentages_1
+            rel_err = np.abs(self.percentages_1[self.band] - h_percentages) / self.percentages_1[self.band]
 
             err_mean = np.mean(rel_err * 100)
             err_median = np.median(rel_err * 100)
