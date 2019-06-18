@@ -355,7 +355,7 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                     for thrd in range(len(threads)):
                         if redises[thrd].get('status').decode('utf-8') == SampleSelectorThreadStatus.STATUS_DONE:
                             if not thrds_processed[thrd]:
-                                analysis_band_path = join(storage_folder,
+                                analysis_band_path = join(storage_folder, percentage_idxs_folder[0],
                                                           "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 0))
                                 item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
                                 with np.load(analysis_band_path) as df:
@@ -363,7 +363,7 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
                                 execution = subprocess.run(['rm', analysis_band_path])
 
-                                analysis_band_path = join(storage_folder,
+                                analysis_band_path = join(storage_folder, percentage_idxs_folder[0],
                                                           "band_{:02d}_cls_{:02d}_histogram_err.npz".format(thrd, 0))
                                 item_getter = itemgetter('rel_err', 'err_mean', 'err_median')
                                 with np.load(analysis_band_path) as df:
@@ -371,7 +371,7 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
                                 execution = subprocess.run(['rm', analysis_band_path])
 
-                                analysis_band_path = join(storage_folder,
+                                analysis_band_path = join(storage_folder, percentage_idxs_folder[0],
                                                           "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 1))
                                 item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
                                 with np.load(analysis_band_path) as df:
@@ -379,7 +379,7 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
                                 execution = subprocess.run(['rm', analysis_band_path])
 
-                                analysis_band_path = join(storage_folder,
+                                analysis_band_path = join(storage_folder, percentage_idxs_folder[0],
                                                           "band_{:02d}_cls_{:02d}_histogram_err.npz".format(thrd, 1))
                                 item_getter = itemgetter('rel_err', 'err_mean', 'err_median')
                                 with np.load(analysis_band_path) as df:
