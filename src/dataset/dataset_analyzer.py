@@ -17,6 +17,7 @@ from dataset.threads.sample_selector_thread_status import SampleSelectorThreadSt
 
 TACTIC_UPSAMPLE = 'upsample'
 TACTIC_DOWNSAMPLE = 'downsample'
+TACTIC_NONE = 'none'
 
 OPERATION_CREATE = 1000
 OPERATION_ANALYZE = 2000
@@ -66,8 +67,10 @@ def main(argv):
         elif opt in ["-t", "--tactic"]:
             if arg == 'upsample':
                 tactic = TACTIC_UPSAMPLE
-            else:
+            elif arg == 'downsample':
                 tactic = TACTIC_DOWNSAMPLE
+            else:
+                tactic = TACTIC_NONE
         elif opt in ["-c", "--create"]:
             operation = OPERATION_CREATE
         elif opt in ["-a", "--analyze"]:
