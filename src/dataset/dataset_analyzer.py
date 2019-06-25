@@ -97,7 +97,7 @@ def main(argv):
     if operation == OPERATION_CREATE or operation == OPERATION_MIX:
         indexes_creator(dataset_folder, tactic, storage_folder, beginning, ending, jump, iterations)
     if operation == OPERATION_FULLANALYZE or operation == OPERATION_MIX:
-        full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions)
+        full_dataset_analyzer(dataset_folder, storage_folder, tactic)
     if operation == OPERATION_ANALYZE or operation == OPERATION_MIX:
         dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, partitions)
     if operation == OPERATION_SUMMARIZE or operation == OPERATION_MIX:
