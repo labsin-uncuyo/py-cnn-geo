@@ -9,7 +9,9 @@ class BandAnalyzerThread(multiprocessing.Process):
 
     # def __init__(self, i, raster_array, raster_filepath, target=None, name=None, daemon=None):
     def __init__(self, i, db, bigdata, iter_bigdata_idx_0, iter_bigdata_idx_1, band, storage_folder, edges_0=None,
-                 values_0=None, percentages_0=None, edges_1=None, values_1=None, percentages_1=None):
+                 values_0=None, lower_0=None, upper_0=None, lower_outliers_0=None, upper_outliers_0=None,
+                 percentages_0=None, edges_1=None, values_1=None, lower_1=None, upper_1=None, lower_outliers_1=None,
+                 upper_outliers_1=None, percentages_1=None):
         super().__init__(target=self.run)
         self.i = i
         self.bigdata = bigdata
@@ -19,9 +21,17 @@ class BandAnalyzerThread(multiprocessing.Process):
         self.storage_folder = storage_folder
         self.edges_0 = edges_0
         self.values_0 = values_0
+        self.lower_0 = lower_0
+        self.upper_0 = upper_0
+        self.lower_outliers_0 = lower_outliers_0
+        self.upper_outliers_0 = upper_outliers_0
         self.percentages_0 = percentages_0
         self.edges_1 = edges_1
         self.values_1 = values_1
+        self.lower_1 = lower_1
+        self.upper_1 = upper_1
+        self.lower_outliers_1 = lower_outliers_1
+        self.upper_outliers_1 = upper_outliers_1
         self.percentages_1 = percentages_1
 
         self.total = None
@@ -40,19 +50,19 @@ class BandAnalyzerThread(multiprocessing.Process):
 
         sel_bins = 'fd' if self.edges_0 is None else self.edges_0[self.band]
 
-        h_values, h_edges, h_lower, h_upper, h_lower_outliers, h_upper_outliers = \
-            self.outlier_aware_hist(items, sel_bins, *self.calculate_bounds(items, z_thresh=4.5), data_min=-1,
-                                    data_max=1)
+        bounds = self.calculate_bounds(items, z_thresh=4.5) if self.lower_0 is None else [self.lower_0[self.band],
+                                                                                          self.upper_0[self.band]]
 
-        # h_values, h_edges = np.histogram(items, bins=sel_bins)
+        h_values, h_edges, h_lower, h_upper, h_lower_outliers, h_upper_outliers = \
+            self.outlier_aware_hist(items, sel_bins, *bounds, data_min=-1, data_max=1)
 
         h_percentages = np.multiply(
             np.divide(h_values[h_values != 0] if self.values_0 is None else h_values[self.values_0[self.band] != 0],
                       items.shape[0]), 100.0)
 
         analysis_band_path = join(self.storage_folder, "band_{:02d}_cls_{:02d}_histogram_info.npz".format(self.band, 0))
-        np.savez_compressed(analysis_band_path, h_values=h_values, h_edges=h_edges,h_lower=h_lower, h_upper=h_upper,
-                            h_lower_outliers=h_lower_outliers,h_upper_outliers=h_upper_outliers,
+        np.savez_compressed(analysis_band_path, h_values=h_values, h_edges=h_edges, h_lower=h_lower, h_upper=h_upper,
+                            h_lower_outliers=h_lower_outliers, h_upper_outliers=h_upper_outliers,
                             h_percentages=h_percentages)
 
         if self.percentages_0 is not None:
@@ -72,10 +82,11 @@ class BandAnalyzerThread(multiprocessing.Process):
 
         sel_bins = 'fd' if self.edges_1 is None else self.edges_1[self.band]
 
+        bounds = self.calculate_bounds(items, z_thresh=4.5) if self.lower_1 is None else [self.lower_1[self.band],
+                                                                                          self.upper_1[self.band]]
+
         h_values, h_edges, h_lower, h_upper, h_lower_outliers, h_upper_outliers = \
-            self.outlier_aware_hist(items, sel_bins, *self.calculate_bounds(items, z_thresh=4.5), data_min=-1,
-                                    data_max=1)
-        #h_values, h_edges = np.histogram(items, bins=sel_bins)
+            self.outlier_aware_hist(items, sel_bins, *bounds, data_min=-1, data_max=1)
 
         h_percentages = np.multiply(
             np.divide(h_values[h_values != 0] if self.values_1 is None else h_values[self.values_1[self.band] != 0],
@@ -128,7 +139,7 @@ class BandAnalyzerThread(multiprocessing.Process):
             patches[-1].set_label(
                 'Upper outliers: ({:.2f}, {:.2f})'.format(upper, data.max() if data_max is None else data_max))'''
 
-        #if lower_outliers or upper_outliers:
+        # if lower_outliers or upper_outliers:
         #    plt.legend()
 
         return n, bins, lower, upper, n_lower_outliers if lower_outliers else None, n_upper_outliers if upper_outliers else None

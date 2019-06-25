@@ -291,9 +291,12 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
     values_0 = values_1 = edges_0 = edges_1 = percentages_0 = percentages_1 = None
     analysis_cntr_path = join(storage_folder, "full_histogram_info.npz")
-    item_getter = itemgetter('values_0', 'values_1', 'edges_0', 'edges_1', 'percentages_0', 'percentages_1')
+    item_getter = itemgetter('values_0', 'values_1', 'edges_0', 'edges_1', 'lower_0', 'lower_1', 'upper_0', 'upper_1',
+                             'lower_outliers_0', 'lower_outliers_1', 'upper_outliers_0', 'upper_outliers_1',
+                             'percentages_0', 'percentages_1')
     with np.load(analysis_cntr_path) as df:
-        values_0, values_1, edges_0, edges_1, percentages_0, percentages_1 = item_getter(df)
+        values_0, values_1, edges_0, edges_1, lower_0, lower_1, upper_0, upper_1, lower_outliers_0, lower_outliers_1, upper_outliers_0, upper_outliers_1, percentages_0, percentages_1 = item_getter(
+            df)
 
     print('Procesing percentage sampled index files...\n')
 
@@ -323,6 +326,22 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                                  dtype=object)
             t_edges_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
                                  dtype=object)
+            t_lower_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                 dtype=np.float32)
+            t_lower_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                 dtype=np.float32)
+            t_upper_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                 dtype=np.float32)
+            t_upper_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                 dtype=np.float32)
+            t_lower_outliers_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                          dtype=object)
+            t_lower_outliers_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                          dtype=object)
+            t_upper_outliers_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                          dtype=object)
+            t_upper_outliers_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
+                                          dtype=object)
             t_percentages_0 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
                                        dtype=object)
             t_percentages_1 = np.zeros(shape=(len(percentage_idxs_files), DatasetConfig.DATASET_LST_BANDS_USED,),
@@ -360,8 +379,12 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
                     band_analyzer = BandAnalyzerThread(band, redis_db, bigdata, iter_bigdata_idx_0, iter_bigdata_idx_1,
                                                        band, join(storage_folder, percentage_idxs_folder[0]),
-                                                       edges_0=edges_0, values_0=values_0, percentages_0=percentages_0,
-                                                       edges_1=edges_1, values_1=values_1, percentages_1=percentages_1)
+                                                       edges_0=edges_0, values_0=values_0, lower_0=lower_0,
+                                                       upper_0=upper_0, lower_outliers_0=lower_outliers_0,
+                                                       upper_outliers_0=upper_outliers_0, percentages_0=percentages_0,
+                                                       edges_1=edges_1, values_1=values_1, lower_1=lower_1,
+                                                       upper_1=upper_1, lower_outliers_1=lower_outliers_1,
+                                                       upper_outliers_1=upper_outliers_1, percentages_1=percentages_1)
                     band_analyzers.append(band_analyzer)
 
                     t = band_analyzer
@@ -379,9 +402,12 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                             if not thrds_processed[thrd]:
                                 analysis_band_path = join(storage_folder, percentage_idxs_folder[0],
                                                           "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 0))
-                                item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
+                                item_getter = itemgetter('h_values', 'h_edges', 'h_lower', 'h_upper',
+                                                         'h_lower_outliers', 'h_upper_outliers', 'h_percentages')
                                 with np.load(analysis_band_path) as df:
-                                    t_values_0[i, thrd], t_edges_0[i, thrd], t_percentages_0[i, thrd] = item_getter(df)
+                                    t_values_0[i, thrd], t_edges_0[i, thrd], t_lower_0[i, thrd], t_upper_0[i, thrd], \
+                                    t_lower_outliers_0[i, thrd], t_upper_outliers_0[i, thrd], t_percentages_0[
+                                        i, thrd] = item_getter(df)
 
                                 execution = subprocess.run(['rm', analysis_band_path])
 
@@ -396,9 +422,12 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
 
                                 analysis_band_path = join(storage_folder, percentage_idxs_folder[0],
                                                           "band_{:02d}_cls_{:02d}_histogram_info.npz".format(thrd, 1))
-                                item_getter = itemgetter('h_values', 'h_edges', 'h_percentages')
+                                item_getter = itemgetter('h_values', 'h_edges', 'h_lower', 'h_upper',
+                                                         'h_lower_outliers', 'h_upper_outliers', 'h_percentages')
                                 with np.load(analysis_band_path) as df:
-                                    t_values_1[i, thrd], t_edges_1[i, thrd], t_percentages_1[i, thrd] = item_getter(df)
+                                    t_values_1[i, thrd], t_edges_1[i, thrd], t_lower_1[i, thrd], t_upper_1[i, thrd], \
+                                    t_lower_outliers_1[i, thrd], t_upper_outliers_1[i, thrd], t_percentages_1[
+                                        i, thrd] = item_getter(df)
 
                                 execution = subprocess.run(['rm', analysis_band_path])
 
@@ -425,7 +454,11 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
                                       "{:02d}_histogram_info.npz".format(percentage))
             print('Storing data: ' + analysis_cntr_path)
             np.savez_compressed(analysis_cntr_path, values_0=t_values_0, values_1=t_values_1, edges_0=t_edges_0,
-                                edges_1=t_edges_1, percentages_0=t_percentages_0, percentages_1=t_percentages_1)
+                                edges_1=t_edges_1, lower_0=t_lower_0, lower_1=t_lower_1, upper_0=t_upper_0,
+                                upper_1=t_upper_1, lower_outliers_0=t_lower_outliers_0,
+                                lower_outliers_1=t_lower_outliers_1, upper_outliers_0=t_upper_outliers_0,
+                                upper_outliers_1=t_upper_outliers_1, percentages_0=t_percentages_0,
+                                percentages_1=t_percentages_1)
             analysis_cntr_path = join(storage_folder, percentage_idxs_folder[0],
                                       "{:02d}_histogram_err.npz".format(percentage))
             print('Storing data: ' + analysis_cntr_path)
