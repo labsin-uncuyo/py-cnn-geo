@@ -112,7 +112,7 @@ class BandAnalyzerThread(multiprocessing.Process):
         else:
             upper_outliers = True
 
-        n, bins = plt.histogram(data, range=(lower, upper), bins=sel_bins)
+        n, bins = np.histogram(data, range=(lower, upper), bins=sel_bins)
 
         if lower_outliers:
             n_lower_outliers = (data < lower).sum()
@@ -128,8 +128,8 @@ class BandAnalyzerThread(multiprocessing.Process):
             patches[-1].set_label(
                 'Upper outliers: ({:.2f}, {:.2f})'.format(upper, data.max() if data_max is None else data_max))'''
 
-        if lower_outliers or upper_outliers:
-            plt.legend()
+        #if lower_outliers or upper_outliers:
+        #    plt.legend()
 
         return n, bins, lower, upper, n_lower_outliers if lower_outliers else None, n_upper_outliers if upper_outliers else None
 

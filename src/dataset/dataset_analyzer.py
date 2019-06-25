@@ -436,7 +436,7 @@ def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, pa
     print('Done!')
 
 
-def full_dataset_analyzer(dataset_folder, storage_folder, tactic, partitions):
+def full_dataset_analyzer(dataset_folder, storage_folder, tactic):
     print('Retrieving datasets...')
 
     rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
