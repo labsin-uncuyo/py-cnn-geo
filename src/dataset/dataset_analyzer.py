@@ -25,7 +25,6 @@ OPERATION_FULLANALYZE = 2500
 OPERATION_MIX = 3000
 OPERATION_SUMMARIZE = 4000
 
-
 def main(argv):
     """
     Main function which shows the usage, retrieves the command line parameters and invokes the required functions to do
@@ -44,21 +43,19 @@ def main(argv):
     ending = 100
     jump = 5
     iterations = 10
-    partitions = 20
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:t:cafmob:e:j:i:p:",
+        opts, args = getopt.getopt(argv, "hs:d:t:cafmob:e:j:i:",
                                    ["dataset_folder=", "storage_folder=", "tactic=", "create", "analyze",
-                                    "full_analyze", "mix", "out", "begin=", "end=", "jump=", "iterations=",
-                                    "partitions="])
+                                    "full_analyze", "mix", "out", "begin=", "end=", "jump=", "iterations="])
     except getopt.GetoptError:
         print(
-            'balanced_factor_indexer.py -s <dataset_folder> -d <storage_folder> -t {upsample/downsample} -m -b <beginning_percentage> -e <ending_percentage -j <jump_between_samples> -i <number_of_iterations> -p <partition_bins>')
+            'balanced_factor_indexer.py -s <dataset_folder> -d <storage_folder> -t {upsample/downsample} -m -b <beginning_percentage> -e <ending_percentage -j <jump_between_samples> -i <number_of_iterations>')
         sys.exit(2)
     for opt, arg in opts:
         if opt == "-h":
             print(
-                'balanced_factor_indexer.py -s <dataset_folder> -d <storage_folder> -t {upsample/downsample} -m -b <beginning_percentage> -e <ending_percentage -j <jump_between_samples> -i <number_of_iterations> -p <partition_bins>')
+                'balanced_factor_indexer.py -s <dataset_folder> -d <storage_folder> -t {upsample/downsample} -m -b <beginning_percentage> -e <ending_percentage -j <jump_between_samples> -i <number_of_iterations>')
             sys.exit()
         elif opt in ["-s", "--dataset_folder"]:
             dataset_folder = arg
@@ -89,8 +86,6 @@ def main(argv):
             jump = int(arg)
         elif opt in ["-i", "--iterations"]:
             iterations = int(arg)
-        elif opt in ["-p", "--partitions"]:
-            partitions = int(arg)
 
     print('Working with dataset folder %s' % dataset_folder)
 
@@ -99,7 +94,7 @@ def main(argv):
     if operation == OPERATION_FULLANALYZE or operation == OPERATION_MIX:
         full_dataset_analyzer(dataset_folder, storage_folder, tactic)
     if operation == OPERATION_ANALYZE or operation == OPERATION_MIX:
-        dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, partitions)
+        dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump)
     if operation == OPERATION_SUMMARIZE or operation == OPERATION_MIX:
         analysis_summarizer(storage_folder, beginning, ending, jump)
 
@@ -254,7 +249,7 @@ def indexes_creator(dataset_folder, tactic, storage_folder, beginning, ending, j
     print('Done!')
 
 
-def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump, partitions):
+def dataset_analyzer(dataset_folder, storage_folder, beginning, ending, jump):
     print('Retrieving datasets...')
 
     rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
@@ -572,8 +567,11 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic):
 
             left_to_complete = upsample_amount % cnt_idx_1
 
+            c_bigdata_idx_1 = bigdata_idx_1.copy()
+            np.random.shuffle(c_bigdata_idx_1)
+
             if left_to_complete > 0:
-                bigdata_idx_1 = np.append(bigdata_idx_1, bigdata_idx_1[:left_to_complete], axis=0)
+                bigdata_idx_1 = np.append(bigdata_idx_1, c_bigdata_idx_1[:left_to_complete], axis=0)
         else:
             if upsample_amount / cnt_idx_0 > 1:
                 repetitions = int(upsample_amount / cnt_idx_0)
@@ -584,8 +582,16 @@ def full_dataset_analyzer(dataset_folder, storage_folder, tactic):
 
             left_to_complete = upsample_amount % cnt_idx_0
 
+            c_bigdata_idx_0 = bigdata_idx_0.copy()
+            np.random.shuffle(c_bigdata_idx_0)
+
             if left_to_complete > 0:
-                bigdata_idx_0 = np.append(bigdata_idx_0, bigdata_idx_0[:left_to_complete], axis=0)
+                bigdata_idx_0 = np.append(bigdata_idx_0, c_bigdata_idx_0[:left_to_complete], axis=0)
+
+    analysis_idx_path = join(storage_folder,
+                             "full_{:}_samples_idx.npz".format(tactic))
+    print('Storing data: ' + analysis_idx_path)
+    np.savez_compressed(analysis_idx_path, bigdata_idx_0=bigdata_idx_0, bigdata_idx_1=bigdata_idx_1)
 
     print('Procesing full dataset distribution sampled index files...\n')
 
