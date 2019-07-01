@@ -2,5 +2,6 @@ venv3.5/*
 venv3.6/*
 .idea/*
 src/storage/temp/*
+src/storage/search/*
 src/data/*
 

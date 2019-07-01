@@ -25,6 +25,8 @@ class DatasetConfig:
 
     BALANCED_PERCENTAGE = 10
 
+    MAX_PADDING = 15
+
 class SamplesConfig:
     PATCH_SIZE = 9
     TEST_PERCENTAGE = 0.10
