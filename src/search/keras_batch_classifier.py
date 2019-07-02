@@ -71,7 +71,7 @@ class KerasBatchClassifier(KerasClassifier):
         accuracy_history = AccuracyHistory()
         early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto")
         model_checkpoint = ModelCheckpoint(
-            "../storage/search/" + self.name + ".best_weights.{epoch:02d}-{loss:.5f}.hdf5", monitor='val_acc',
+            "../storage/search/" + self.name + ".best_weights.{epoch:02d}-{loss:.5f}-{acc:.5f}.hdf5", monitor='val_acc',
             verbose=5, save_best_only=False, mode="auto")
 
         callbacks = [accuracy_history, early_stopping, model_checkpoint]
