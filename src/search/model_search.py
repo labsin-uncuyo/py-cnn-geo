@@ -54,6 +54,10 @@ def main(argv):
 
     print('Working with dataset folder %s' % dataset_folder)
 
+    # fix random seed for reproducibility
+    seed = 7
+    np.random.seed(seed)
+
     parameter_searcher(dataset_folder)
 
     sys.exit()
@@ -99,7 +103,8 @@ def parameter_searcher(dataset_folder):
 
 
 def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000, lr=0.001):
-    K.clear_session()
+    print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
+    #K.clear_session()
     # this may get harder to calculate if the
     patch_size = (clks-1) + ((cls-1) * 2) + 1
 
