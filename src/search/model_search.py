@@ -1,6 +1,7 @@
 import gdal
 import getopt
 import sys
+sys.path.append("..")
 import os
 import gc
 import numpy as np

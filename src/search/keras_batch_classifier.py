@@ -61,6 +61,9 @@ class KerasBatchClassifier(KerasClassifier):
         self.name = self.build_name(naming_args, self.sk_params)
 
         # serialize model to JSON
+        print('\n-----------------------------------------------------------\n'
+              'Starting with file %s'
+              '\n-----------------------------------------------------------\n\n' % (self.name))
         model_json = self.model.to_json()
         with open("../storage/search/" + self.name + ".json", "w") as json_file:
             json_file.write(model_json)
