@@ -24,7 +24,7 @@ class KerasBatchClassifier(KerasClassifier):
         self.name = None
 
     def fit(self, X, y, **kwargs):
-        print('Fitting %d elements' % (len(X)))
+        print('Fitting %d elements' % (len(X.shape[0])))
 
         self.dataset = kwargs['dataset']
         self.dataset_gt = kwargs['dataset_gt']
@@ -52,7 +52,7 @@ class KerasBatchClassifier(KerasClassifier):
         patch_size = self.get_padding(self.model.layers)
         offset = int(DatasetConfig.MAX_PADDING / 2) - int(patch_size / 2)
 
-        train_idxs, val_idxs = self.divide_indexes(X)
+        #train_idxs, val_idxs = self.divide_indexes(X)
 
         '''traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
                                        dataset_gt=self.dataset_gt, indexes=train_idxs, patch_size=patch_size,
@@ -89,7 +89,7 @@ class KerasBatchClassifier(KerasClassifier):
 
         self.__history = self.model.fit_generator(
             traingen,
-            steps_per_epoch=int(len(train_idxs) // NetworkParameters.BATCH_SIZE) + 1,
+            steps_per_epoch=int(len(X.shape[0]) // NetworkParameters.BATCH_SIZE) + 1,
             #validation_data=valgen,
             #validation_steps=int(len(val_idxs) // NetworkParameters.BATCH_SIZE) + 1,
             callbacks=callbacks,
