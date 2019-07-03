@@ -8,6 +8,7 @@ from config import NetworkParameters, SamplesConfig, DatasetConfig
 
 import types
 import copy
+import datetime
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, classification_report
@@ -23,6 +24,7 @@ class KerasBatchClassifier(KerasClassifier):
         self.name = None
 
     def fit(self, X, y, **kwargs):
+        print('Fitting %d elements' % (len(X)))
 
         self.dataset = kwargs['dataset']
         self.dataset_gt = kwargs['dataset_gt']
@@ -52,13 +54,16 @@ class KerasBatchClassifier(KerasClassifier):
 
         train_idxs, val_idxs = self.divide_indexes(X)
 
-        traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
+        '''traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
                                        dataset_gt=self.dataset_gt, indexes=train_idxs, patch_size=patch_size,
+                                       offset=offset)'''
+        traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
+                                       dataset_gt=self.dataset_gt, indexes=X, patch_size=patch_size,
                                        offset=offset)
-        valgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
-                                     dataset_gt=self.dataset_gt, indexes=val_idxs, patch_size=patch_size, offset=offset)
+        '''valgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
+                                     dataset_gt=self.dataset_gt, indexes=val_idxs, patch_size=patch_size, offset=offset)'''
 
-        self.name = self.build_name(naming_args, self.sk_params)
+        self.name = '{date:%Y%m%d_%H%M%S}'.format(date=datetime.datetime.now()) + self.build_name(naming_args, self.sk_params)
 
         # serialize model to JSON
         print('\n-----------------------------------------------------------\n'
@@ -71,7 +76,7 @@ class KerasBatchClassifier(KerasClassifier):
         accuracy_history = AccuracyHistory()
         early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto")
         model_checkpoint = ModelCheckpoint(
-            "../storage/search/" + self.name + ".best_weights.{epoch:02d}-{loss:.5f}-{acc:.5f}.hdf5", monitor='val_acc',
+            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}.hdf5", monitor='val_acc',
             verbose=5, save_best_only=False, mode="auto")
 
         callbacks = [accuracy_history, early_stopping, model_checkpoint]
@@ -85,8 +90,8 @@ class KerasBatchClassifier(KerasClassifier):
         self.__history = self.model.fit_generator(
             traingen,
             steps_per_epoch=int(len(train_idxs) // NetworkParameters.BATCH_SIZE) + 1,
-            validation_data=valgen,
-            validation_steps=int(len(val_idxs) // NetworkParameters.BATCH_SIZE) + 1,
+            #validation_data=valgen,
+            #validation_steps=int(len(val_idxs) // NetworkParameters.BATCH_SIZE) + 1,
             callbacks=callbacks,
             epochs=10,
             **fit_args
@@ -95,6 +100,8 @@ class KerasBatchClassifier(KerasClassifier):
         return self.__history
 
     def score(self, X, y, **kwargs):
+        print('Scoring %d elements' % (len(X)))
+
         kwargs = self.filter_sk_params(Sequential.evaluate_generator, kwargs)
 
         loss_name = self.model.loss

@@ -87,7 +87,7 @@ def parameter_searcher(dataset_folder):
 
     name_args = ['cls', 'fms', 'clks', 'fcls', 'fcns']
     param_grid = dict(cls=cls, fms=fms, clks=clks, fcls=fcls, fcns=fcns)
-    grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1, error_score='raise')
+    grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1, error_score='raise', verbose=1, cv=3)
 
     grid_result = grid.fit(dataset_idxs, dataset_idxs, dataset=dataset, dataset_gt=dataset_gt, name_args=name_args)
 
