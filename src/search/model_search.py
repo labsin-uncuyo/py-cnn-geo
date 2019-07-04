@@ -77,11 +77,11 @@ def parameter_searcher(dataset_folder):
     fms = [64, 128]
     #fms = [128]
     clks = [5, 3]
-    #clks = [5]
+    #clks = [3]
     fcls = [2, 3]
-    #fcls = [3]
+    #fcls = [1]
     fcns = [1000, 1500, 2000]
-    #fcns = [2000]
+    #fcns = [500]
     #lr = [0.01, 0.001, 0.0001]
     #opt = [Adam(), RMSprop(), Adamax()]
 
@@ -104,7 +104,7 @@ def parameter_searcher(dataset_folder):
 
 def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000, lr=0.001):
     print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
-    #K.clear_session()
+    K.clear_session()
     # this may get harder to calculate if the
     patch_size = (clks-1) + ((cls-1) * 2) + 1
 

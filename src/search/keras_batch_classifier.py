@@ -24,7 +24,7 @@ class KerasBatchClassifier(KerasClassifier):
         self.name = None
 
     def fit(self, X, y, **kwargs):
-        print('Fitting %d elements' % (len(X.shape[0])))
+        print('Fitting %d elements' % (X.shape[0]))
 
         self.dataset = kwargs['dataset']
         self.dataset_gt = kwargs['dataset_gt']
@@ -66,9 +66,9 @@ class KerasBatchClassifier(KerasClassifier):
         self.name = '{date:%Y%m%d_%H%M%S}'.format(date=datetime.datetime.now()) + self.build_name(naming_args, self.sk_params)
 
         # serialize model to JSON
-        print('\n-----------------------------------------------------------\n'
+        print('\n-------------------------------------------------------------------------------\n'
               'Starting with file %s'
-              '\n-----------------------------------------------------------\n\n' % (self.name))
+              '\n-------------------------------------------------------------------------------\n\n' % (self.name))
         model_json = self.model.to_json()
         with open("../storage/search/" + self.name + ".json", "w") as json_file:
             json_file.write(model_json)
@@ -89,18 +89,18 @@ class KerasBatchClassifier(KerasClassifier):
 
         self.__history = self.model.fit_generator(
             traingen,
-            steps_per_epoch=int(len(X.shape[0]) // NetworkParameters.BATCH_SIZE) + 1,
+            steps_per_epoch=int(X.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
             #validation_data=valgen,
             #validation_steps=int(len(val_idxs) // NetworkParameters.BATCH_SIZE) + 1,
             callbacks=callbacks,
-            epochs=10,
+            epochs=1,
             **fit_args
         )
 
         return self.__history
 
     def score(self, X, y, **kwargs):
-        print('Scoring %d elements' % (len(X)))
+        print('Scoring %d elements' % (X.shape[0]))
 
         kwargs = self.filter_sk_params(Sequential.evaluate_generator, kwargs)
 
@@ -118,10 +118,10 @@ class KerasBatchClassifier(KerasClassifier):
                                       indexes=X, patch_size=patch_size, offset=offset)
 
         outputs = self.model.evaluate_generator(generator=evalgen,
-                                                steps=int(len(X) // NetworkParameters.BATCH_SIZE) + 1, **kwargs)
+                                                steps=int(X.shape[0] // NetworkParameters.BATCH_SIZE) + 1, **kwargs)
 
         predict_out = self.model.predict_generator(generator=evalgen,
-                                                   steps=int(len(X) // NetworkParameters.BATCH_SIZE) + 1,
+                                                   steps=int(X.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
                                                    use_multiprocessing=True, verbose=0)
         predict_out = np.argmax(predict_out, axis=1)
 
