@@ -63,7 +63,7 @@ class KerasBatchClassifier(KerasClassifier):
         '''valgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
                                      dataset_gt=self.dataset_gt, indexes=val_idxs, patch_size=patch_size, offset=offset)'''
 
-        self.name = '{date:%Y%m%d_%H%M%S}'.format(date=datetime.datetime.now()) + self.build_name(naming_args, self.sk_params)
+        self.name = '{date:%Y%m%d_%H%M%S}'.format(date=datetime.datetime.now()) + '.' + self.build_name(naming_args, self.sk_params)
 
         # serialize model to JSON
         print('\n-------------------------------------------------------------------------------\n'
