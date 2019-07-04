@@ -79,9 +79,9 @@ def parameter_searcher(dataset_folder):
     clks = [5, 3]
     #clks = [3]
     fcls = [2, 3]
-    #fcls = [1]
+    #fcls = [3]
     fcns = [1000, 2000]
-    #fcns = [500]
+    #fcns = [2000]
     #lr = [0.01, 0.001, 0.0001]
     #opt = [Adam(), RMSprop(), Adamax()]
 
