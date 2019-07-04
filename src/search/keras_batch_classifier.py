@@ -93,7 +93,7 @@ class KerasBatchClassifier(KerasClassifier):
             #validation_data=valgen,
             #validation_steps=int(len(val_idxs) // NetworkParameters.BATCH_SIZE) + 1,
             callbacks=callbacks,
-            epochs=1,
+            epochs=10,
             **fit_args
         )
 
