@@ -11,6 +11,7 @@ import copy
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from os.path import exists
 from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.utils.multiclass import unique_labels
 
@@ -74,9 +75,9 @@ class KerasBatchClassifier(KerasClassifier):
             json_file.write(model_json)
 
         accuracy_history = AccuracyHistory()
-        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto")
+        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='acc')
         model_checkpoint = ModelCheckpoint(
-            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}.hdf5", monitor='val_acc',
+            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}.hdf5", monitor='acc',
             verbose=5, save_best_only=False, mode="auto")
 
         callbacks = [accuracy_history, early_stopping, model_checkpoint]
@@ -131,7 +132,10 @@ class KerasBatchClassifier(KerasClassifier):
 
         print(classification_report(expected_out, predict_out, target_names=np.array(['no forest', 'forest'])))
 
-        np.savez_compressed("../storage/search/" + self.name + ".conf_mat.npz", cm=cm)
+        confmat_file = "../storage/search/" + self.name + ".conf_mat.npz"
+
+        if not exists(confmat_file):
+            np.savez_compressed(confmat_file, cm=cm)
 
         if type(outputs) is not list:
             outputs = [outputs]
