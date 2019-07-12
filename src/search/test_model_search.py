@@ -119,7 +119,7 @@ def parameter_searcher(dataset_folder):
     )
 
 
-def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000, lr=0.001):
+def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000):
     print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
     K.clear_session()
     # this may get harder to calculate if the
@@ -138,7 +138,7 @@ def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000, lr=0.001):
         model.add(Dense(fcns, activation='relu'))
     model.add(Dense(2, activation='softmax'))
 
-    model.compile(loss=binary_crossentropy, optimizer=Adam(lr=lr), metrics=['accuracy'])
+    model.compile(loss=binary_crossentropy, optimizer=Adam(), metrics=['accuracy'])
     return model
 
 
