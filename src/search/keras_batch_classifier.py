@@ -1,4 +1,4 @@
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.callbacks import ModelCheckpoint
 from keras.wrappers.scikit_learn import KerasClassifier
 from keras.models import Sequential, Model
 from keras.layers import Conv2D
@@ -10,7 +10,6 @@ import types
 import copy
 import datetime
 import numpy as np
-import matplotlib.pyplot as plt
 from os.path import exists
 from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.utils.multiclass import unique_labels
@@ -53,16 +52,16 @@ class KerasBatchClassifier(KerasClassifier):
         patch_size = self.get_padding(self.model.layers)
         offset = int(DatasetConfig.MAX_PADDING / 2) - int(patch_size / 2)
 
-        #train_idxs, val_idxs = self.divide_indexes(X)
+        train_idxs, val_idxs = self.divide_indexes(X)
 
-        '''traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
-                                       dataset_gt=self.dataset_gt, indexes=train_idxs, patch_size=patch_size,
-                                       offset=offset)'''
         traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
-                                       dataset_gt=self.dataset_gt, indexes=X, patch_size=patch_size,
+                                       dataset_gt=self.dataset_gt, indexes=train_idxs, patch_size=patch_size,
                                        offset=offset)
-        '''valgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
-                                     dataset_gt=self.dataset_gt, indexes=val_idxs, patch_size=patch_size, offset=offset)'''
+        '''traingen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
+                                       dataset_gt=self.dataset_gt, indexes=X, patch_size=patch_size,
+                                       offset=offset)'''
+        valgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=self.dataset,
+                                     dataset_gt=self.dataset_gt, indexes=val_idxs, patch_size=patch_size, offset=offset)
 
         self.name = '{date:%Y%m%d_%H%M%S}'.format(date=datetime.datetime.now()) + '.' + self.build_name(naming_args, self.sk_params)
 
@@ -75,12 +74,13 @@ class KerasBatchClassifier(KerasClassifier):
             json_file.write(model_json)
 
         accuracy_history = AccuracyHistory()
-        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='acc')
+        #early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='acc')
         model_checkpoint = ModelCheckpoint(
-            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}.hdf5", monitor='acc',
+            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_accuracy:.2f}.hdf5", monitor='val_accuracy',
             verbose=5, save_best_only=False, mode="auto")
 
-        callbacks = [accuracy_history, early_stopping, model_checkpoint]
+        #callbacks = [accuracy_history, early_stopping, model_checkpoint]
+        callbacks = [accuracy_history, model_checkpoint]
 
         # epochs = self.sk_params['epochs'] if 'epochs' in self.sk_params else 100
 
@@ -90,9 +90,9 @@ class KerasBatchClassifier(KerasClassifier):
 
         self.__history = self.model.fit_generator(
             traingen,
-            steps_per_epoch=int(X.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
-            #validation_data=valgen,
-            #validation_steps=int(len(val_idxs) // NetworkParameters.BATCH_SIZE) + 1,
+            steps_per_epoch=int(train_idxs.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
+            validation_data=valgen,
+            validation_steps=int(val_idxs.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
             callbacks=callbacks,
             epochs=10,
             **fit_args
@@ -128,7 +128,7 @@ class KerasBatchClassifier(KerasClassifier):
 
         expected_out = self.get_expected(X)
 
-        ax, cm = self.plot_confusion_matrix(expected_out, predict_out, np.array(['No Forest', 'Forest']))
+        cm = self.print_confusion_matrix(expected_out, predict_out, np.array(['No Forest', 'Forest']))
 
         print(classification_report(expected_out, predict_out, target_names=np.array(['no forest', 'forest'])))
 
@@ -147,7 +147,7 @@ class KerasBatchClassifier(KerasClassifier):
                         'the `model.compile()` method.')
 
     def divide_indexes(self, indexes_file):
-        split_1 = int(SamplesConfig.TEST_PERCENTAGE * len(indexes_file))
+        split_1 = int(SamplesConfig.TEST_PERCENTAGE * indexes_file.shape[0])
 
         train_idxs = indexes_file[split_1:]
         validation_idxs = indexes_file[:split_1]
@@ -190,12 +190,11 @@ class KerasBatchClassifier(KerasClassifier):
 
         return expected
 
-    def plot_confusion_matrix(self, y_true, y_pred, classes,
+    def print_confusion_matrix(self, y_true, y_pred, classes,
                               normalize=False,
-                              title=None,
-                              cmap=plt.cm.Blues):
+                              title=None):
         """
-        This function prints and plots the confusion matrix.
+        This function prints the confusion matrix.
         Normalization can be applied by setting `normalize=True`.
         """
         if not title:
@@ -216,7 +215,7 @@ class KerasBatchClassifier(KerasClassifier):
 
         print(cm)
 
-        fig, ax = plt.subplots()
+        '''fig, ax = plt.subplots()
         im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
         ax.figure.colorbar(im, ax=ax)
         # We want to show all ticks...
@@ -241,7 +240,8 @@ class KerasBatchClassifier(KerasClassifier):
                         ha="center", va="center",
                         color="white" if cm[i, j] > thresh else "black")
         fig.tight_layout()
-        return ax, cm
+        return ax, cm'''
+        return cm
 
     @property
     def history(self):

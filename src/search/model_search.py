@@ -99,10 +99,10 @@ def parameter_searcher(dataset_folder):
     params = grid_result.cv_results_['params']
     for mean, stdev, param in zip(means, stds, params):
         print("%f (%f) with: %r" % (mean, stdev, param))
-    print(model.summary())
+    #print(model.summary())
 
 
-def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000, lr=0.001):
+def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000):
     print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
     K.clear_session()
     # this may get harder to calculate if the

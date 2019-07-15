@@ -14,8 +14,9 @@ from keras import backend as K
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 from keras.models import Sequential, Model
 from keras.layers import Conv2D, Flatten, Dense
+from keras.layers.advanced_activations import LeakyReLU
 from keras.losses import binary_crossentropy
-from keras.optimizers import Adam
+from keras.optimizers import Adam, SGD
 from search.keras_batch_classifier import KerasBatchClassifier
 from config import DatasetConfig, RasterParams, NetworkParameters
 from entities.AccuracyHistory import AccuracyHistory
@@ -78,7 +79,7 @@ def parameter_searcher(dataset_folder):
     cls = 4
     fms = 64
     clks = 3
-    fcls = 3
+    fcls = 2
     fcns = 1000
 
     name_args = ['cls', 'fms', 'clks', 'fcls', 'fcns']
@@ -103,18 +104,19 @@ def parameter_searcher(dataset_folder):
         json_file.write(model_json)
 
     accuracy_history = AccuracyHistory()
-    early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='acc')
+    #early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='acc')
     model_checkpoint = ModelCheckpoint(
         "../storage/search/" + name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}.hdf5", monitor='acc',
         verbose=5, save_best_only=False, mode="auto")
 
-    callbacks = [accuracy_history, early_stopping, model_checkpoint]
+    callbacks = [accuracy_history, model_checkpoint]
 
     model.fit_generator(
         traingen,
         steps_per_epoch=int(dataset_idxs.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
         callbacks=callbacks,
-        epochs=10,
+        epochs=100,
+        shuffle=True,
         verbose=1
     )
 
@@ -130,14 +132,21 @@ def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000):
     model = Sequential()
     for i in range(cls):
         if i == 0:
-            model.add(Conv2D(fms, kernel_size=(clks, clks), strides=(1, 1), activation='relu', input_shape=input_shape))
+            #model.add(Conv2D(fms, kernel_size=(clks, clks), strides=(1, 1), activation='relu', input_shape=input_shape))
+            model.add(Conv2D(fms, kernel_size=(clks, clks), strides=(1, 1), input_shape=input_shape))
+            model.add(LeakyReLU(alpha=0.3))
         else:
-            model.add(Conv2D(fms, kernel_size=(3, 3), strides=(1, 1), activation='relu'))
+            #model.add(Conv2D(fms, kernel_size=(3, 3), strides=(1, 1), activation='relu'))
+            model.add(Conv2D(fms, kernel_size=(3, 3), strides=(1, 1)))
+            model.add(LeakyReLU(alpha=0.3))
     model.add(Flatten())
     for i in range(fcls):
-        model.add(Dense(fcns, activation='relu'))
+        #model.add(Dense(fcns, activation='relu'))
+        model.add(Dense(fcns))
+        model.add(LeakyReLU(alpha=0.3))
     model.add(Dense(2, activation='softmax'))
 
+    #model.compile(loss=binary_crossentropy, optimizer=SGD(), metrics=['accuracy'])
     model.compile(loss=binary_crossentropy, optimizer=Adam(), metrics=['accuracy'])
     return model
 
