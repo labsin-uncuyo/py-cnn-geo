@@ -11,11 +11,10 @@ from os.path import isfile, join
 from keras.models import Sequential
 from keras.layers import Conv2D, Flatten, Dense
 from keras.losses import binary_crossentropy
-from keras.optimizers import Adam, RMSprop, Adamax
+from keras.optimizers import Adam, RMSprop, Adamax, SGD
 from sklearn.model_selection import GridSearchCV
 from search.keras_batch_classifier import KerasBatchClassifier
 from config import DatasetConfig, RasterParams
-import tensorflow as tf
 from keras import backend as K
 
 
@@ -121,7 +120,7 @@ def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000):
         model.add(Dense(fcns, activation='relu'))
     model.add(Dense(2, activation='softmax'))
 
-    model.compile(loss=binary_crossentropy, optimizer=Adam(lr=lr), metrics=['accuracy'])
+    model.compile(loss=binary_crossentropy, optimizer=SGD(), metrics=['accuracy'])
     return model
 
 
