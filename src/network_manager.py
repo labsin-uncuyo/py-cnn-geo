@@ -8,12 +8,16 @@ import time
 
 from operator import itemgetter
 from os import listdir
-from os.path import isfile, join
-from keras.models import Sequential, model_from_json
+from os.path import isfile, join, exists
+from keras.models import Sequential, model_from_json, Model
 from keras.layers import Conv2D, Flatten, Dense
-from keras.callbacks import ModelCheckpoint
+from keras.losses import binary_crossentropy
+from keras.optimizers import Adam, RMSprop, Adamax, SGD
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras import backend as K
 from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.utils.multiclass import unique_labels
+from sklearn.model_selection import KFold
 from raster_rw import GTiffHandler
 from entities.AccuracyHistory import AccuracyHistory
 from config import SamplesConfig, NetworkParameters, RasterParams, DatasetConfig, TestParameters
@@ -21,11 +25,13 @@ from models.index_based_generator import IndexBasedGenerator
 from models.sorted_predict_generator import SortedPredictGenerator
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # for training on gpu
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
 OPERATION_CREATE_SAMPLES = 10
 OPERATION_DIVIDE_SAMPLES = 20
 OPERATION_CREATE_NETWORK = 30
 OPERATION_CREATE_NETWORK_WITH_GENERATOR = 31
+OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD = 32
 OPERATION_TRAIN_NETWORK = 40
 OPERATION_TEST_NETWORK = 50
 OPERATION_TEST_FULLSIZE_NETWORK = 60
@@ -54,9 +60,9 @@ def main(argv):
     include_validation = False
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:tr:tef:n:p",
+        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:tr:tef:n:pa:",
                                    ["create_sample=", "divide_sample=", "create_network=", "create_network_gen=",
-                                    "train_network=", "test=", "tif_sample=", "test_fullsize=", "network_name=", "play"])
+                                    "train_network=", "test=", "tif_sample=", "test_fullsize=", "network_name=", "play", "create_network_gen="])
     except getopt.GetoptError:
         print('network_manager.py -h')
         sys.exit(2)
@@ -83,6 +89,9 @@ def main(argv):
         elif opt in ["-z", "--test"]:
             dataset_file = arg
             operation = OPERATION_TEST
+        elif opt in ["-a", "--create_network_gen_kfold"]:
+            dataset_folder = arg
+            operation = OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD
         elif opt in ["-tef", "--test_fullsize"]:
             opt_args = arg.split('&')
             model_file = opt_args[0]
@@ -107,8 +116,7 @@ def main(argv):
         train_x = train_y = val_x = val_y = test_x = test_y = None
         if include_validation:
             train_x, train_y, val_x, val_y, test_x, test_y = divide_samples(samples_file)
-            input_shape = (SamplesConfig.PATCH_SIZE, SamplesConfig.PATCH_SIZE, train_x.shape[1])
-            model = create_network(input_shape)
+            model = create_model()
 
             train_x = train_x.reshape(train_x.shape[0], SamplesConfig.PATCH_SIZE, SamplesConfig.PATCH_SIZE,
                                       train_x.shape[1])
@@ -128,8 +136,7 @@ def main(argv):
                                   val_x, val_y, network_name)
         else:
             train_x, train_y, test_x, test_y = divide_samples(samples_file)
-            input_shape = (SamplesConfig.PATCH_SIZE, SamplesConfig.PATCH_SIZE, train_x.shape[1])
-            model = create_network(input_shape)
+            model = create_model()
 
             # serialize model to JSON
             model_json = model.to_json()
@@ -155,10 +162,9 @@ def main(argv):
         model.save_weights("storage/" + model_weights_name + ".h5")
         print("Saved model to disk")
     elif operation == OPERATION_CREATE_NETWORK_WITH_GENERATOR:
-        dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder)
+        dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, DatasetConfig.MAX_PADDING)
 
-        input_shape = (SamplesConfig.PATCH_SIZE, SamplesConfig.PATCH_SIZE, DatasetConfig.DATASET_LST_BANDS_USED)
-        model = create_network(input_shape)
+        model = create_model()
 
         # serialize model to JSON
         model_json = model.to_json()
@@ -194,7 +200,8 @@ def main(argv):
         model_weights_name = network_name + '_' + "{0:.4f}".format(accuracy_history.acc[-1])
         model.save_weights("storage/" + model_weights_name + ".h5")
         print("Saved model to disk")
-
+    elif operation == OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD:
+        train_network_kfold(dataset_folder, network_name, 5, 2)
     elif operation == OPERATION_TEST_FULLSIZE_NETWORK:
         test_load_fullsize(model_file, weights_file, dataset_folder)
     elif operation == OPERATION_TEST:
@@ -220,15 +227,14 @@ def prepare_validation_from_idxs(dataset, dataset_gt, validation_idxs):
 
     return val_x, val_y
 
-
-def prepare_generator_dataset(dataset_folder):
+def prepare_generator_dataset(dataset_folder, padding):
     rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
 
     rasters_folders.sort(key=lambda f: int(''.join(filter(str.isdigit, f))))
 
     print(rasters_folders)
 
-    pad_factor = int(SamplesConfig.PATCH_SIZE / 2) * 2
+    pad_factor = int(padding / 2) * 2
     bigdata = np.zeros(shape=(
         len(rasters_folders), DatasetConfig.DATASET_LST_BANDS_USED, RasterParams.SRTM_MAX_X + pad_factor,
         RasterParams.SRTM_MAX_Y + pad_factor), dtype=np.float32)
@@ -245,8 +251,9 @@ def prepare_generator_dataset(dataset_folder):
         with np.load(path_to_pck) as df:
             pck_bigdata = item_getter(df)
 
-        pad_amount = int(SamplesConfig.PATCH_SIZE / 2)
-        pck_bigdata = np.pad(pck_bigdata, [(0, 0), (pad_amount, pad_amount), (pad_amount, pad_amount)], mode='constant')
+        half_padding = int(padding / 2)
+        pck_bigdata = np.pad(pck_bigdata, [(0, 0), (half_padding, half_padding), (half_padding, half_padding)],
+                             mode='constant')
 
         bigdata[i] = pck_bigdata
 
@@ -279,7 +286,6 @@ def prepare_generator_dataset(dataset_folder):
     gc.collect()
 
     return bigdata, bigdata_gt, bigdata_idx_mix
-
 
 def prepare_dataset(dataset_folder):
     sample_rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
@@ -382,8 +388,8 @@ def shuffle_in_unison(a, b, c):
     return shuffled_a, shuffled_b, shuffled_c
 
 
-def divide_indexes(indexes_file):
-    split_1 = int(SamplesConfig.TEST_PERCENTAGE * len(indexes_file))
+def divide_indexes(indexes_file, val_percentage=SamplesConfig.TEST_PERCENTAGE):
+    split_1 = int(val_percentage * len(indexes_file))
 
     train_idxs = indexes_file[split_1:]
     validation_idxs = indexes_file[:split_1]
@@ -418,7 +424,29 @@ def divide_samples(samples_file, include_validation=False):
         return bigtrain_x, bigtrain_y, test_x, test_y
 
 
-def create_network(input_shape):
+def create_model(cls=4, fms=64, clks=3, fcls=1, fcns=1000, optimizer=Adam()):
+    print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
+    #K.clear_session()
+    # this may get harder to calculate if the
+    patch_size = (clks-1) + ((cls-1) * 2) + 1
+
+    input_shape = (patch_size, patch_size, DatasetConfig.DATASET_LST_BANDS_USED)
+
+    model = Sequential()
+    for i in range(cls):
+        if i == 0:
+            model.add(Conv2D(fms, kernel_size=(clks, clks), strides=(1, 1), activation='relu', input_shape=input_shape))
+        else:
+            model.add(Conv2D(fms, kernel_size=(3, 3), strides=(1, 1), activation='relu'))
+    model.add(Flatten())
+    for i in range(fcls):
+        model.add(Dense(fcns, activation='relu'))
+    model.add(Dense(2, activation='softmax'))
+
+    model.compile(loss=binary_crossentropy, optimizer=optimizer, metrics=['accuracy'])
+    return model
+
+'''def create_network(input_shape):
     model = Sequential()
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(1, 1), activation='relu', input_shape=input_shape))
     model.add(Conv2D(64, kernel_size=(3, 3), strides=(1, 1), activation='relu'))
@@ -430,7 +458,7 @@ def create_network(input_shape):
 
     model.compile(loss=keras.losses.binary_crossentropy, optimizer=keras.optimizers.Adam(), metrics=['accuracy'])
 
-    return model
+    return model'''
 
 
 def train_network(model, x_train, y_train, batch_size, epochs, x_val, y_val, network_name):
@@ -454,6 +482,126 @@ def train_network(model, x_train, y_train, batch_size, epochs, x_val, y_val, net
     plt.show()
 
     return model, accuracy_history.acc[-1]
+
+def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkParameters.EPOCHS):
+    # fix random seed for reproducibility
+    seed = 7
+    np.random.seed(seed)
+
+    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, DatasetConfig.MAX_PADDING)
+
+    kfold = KFold(n_splits=splits, shuffle=True, random_state=seed)
+
+    kfold_splits = kfold.split(X=dataset_idxs)
+
+    cmap = plt.cm.get_cmap('hsv', splits+1)
+
+    for i, (train, test) in enumerate(kfold_splits):
+        print("=========================================")
+        print("===== K Fold Validation step => %d/5 =====" % (i+1))
+        print("=========================================")
+
+        #model = create_model(cls=5, fms=128, clks=5, fcls=3, fcns=2000, optimizer=SGD())
+        model = create_model(cls=4, fms=64, clks=3, fcls=1, fcns=500, optimizer=SGD())
+
+        patch_size = get_padding(model.layers)
+        offset = int(DatasetConfig.MAX_PADDING / 2) - int(patch_size / 2)
+
+        kfold_netname = str(i+1) + '_' + network_name
+
+        # serialize model to JSON
+        model_json = model.to_json()
+        with open("storage/kfold/" + kfold_netname + ".json", "w") as json_file:
+            json_file.write(model_json)
+
+
+        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}.hdf5"
+
+        accuracy_history = AccuracyHistory()
+        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='val_acc')
+        checkpoint = ModelCheckpoint(join("storage/kfold/temp/", filepath), monitor='val_acc', verbose=1,
+                                     save_best_only=False, mode='max')
+
+        train_idxs, validation_idxs = divide_indexes(dataset_idxs[train], val_percentage=0.15)
+
+        train_generator = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE,
+                                              dataset=dataset,
+                                              dataset_gt=dataset_gt,
+                                              indexes=train_idxs,
+                                              patch_size=patch_size,
+                                              offset=offset)
+        val_generator = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE,
+                                            dataset=dataset,
+                                            dataset_gt=dataset_gt,
+                                            indexes=validation_idxs,
+                                            patch_size=patch_size,
+                                            offset=offset)
+
+        model.fit_generator(train_generator,
+                            #steps_per_epoch=len(train_idxs) // NetworkParameters.BATCH_SIZE,
+                            steps_per_epoch=NetworkParameters.BATCH_SIZE,
+                            epochs=epochs,
+                            verbose=1,
+                            callbacks=[accuracy_history, early_stopping, checkpoint],
+                            validation_data=val_generator,
+                            #validation_steps=len(validation_idxs) // NetworkParameters.BATCH_SIZE)
+                            validation_steps=NetworkParameters.BATCH_SIZE)
+
+        plt.plot(range(1, epochs + 1), accuracy_history.acc, color=cmap(i))
+        plt.plot(range(1, epochs + 1), accuracy_history.loss, color=cmap(i), linestyle='dashed')
+
+        # serialize weights to HDF5
+        model_weights_name = kfold_netname + '_' + "{0:.4f}-{1:.4f}".format(accuracy_history.loss[-1],accuracy_history.acc[-1])
+        model.save_weights("storage/kfold/" + model_weights_name + ".h5")
+        print("Saved model to disk")
+
+        evalgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE,
+                                      dataset=dataset,
+                                      dataset_gt=dataset_gt,
+                                      indexes=dataset_idxs[test],
+                                      patch_size=patch_size,
+                                      offset=offset)
+
+        predict_out = model.predict_generator(generator=evalgen,
+                                              steps=int(len(test) // NetworkParameters.BATCH_SIZE)+1,
+                                              use_multiprocessing=True,
+                                              verbose=1)
+        predict_out = np.argmax(predict_out, axis=1)
+
+        expected = np.zeros(shape=(len(test),), dtype=np.uint8)
+        for j, idx in enumerate(dataset_idxs[test]):
+            expected[j] = dataset_gt[idx[0], idx[1], idx[2]]
+
+        cm = plot_confusion_matrix(expected, predict_out, np.array(['No Forest', 'Forest']), plot=False)
+
+        print(classification_report(expected, predict_out, target_names=np.array(['no forest', 'forest'])))
+
+        confmat_file = "storage/kfold/" + kfold_netname + ".conf_mat.npz"
+
+        if not exists(confmat_file):
+            np.savez_compressed(confmat_file, cm=cm)
+
+    plt.xlabel('Epochs')
+    plt.ylabel('Validation Acc/Loss')
+    plt.savefig('storage/kfold/train_kfold.png', bbox_inches='tight')
+    plt.savefig('storage/kfold/train_kfold.pdf', bbox_inches='tight')
+    plt.clf()
+
+    return model, accuracy_history.acc[-1]
+
+def get_padding(layers, ws=None):
+    ws = ws if ws is not None else 1
+
+    for layer_idx in range(len(layers) - 1, -1, -1):
+        layer = layers[layer_idx]
+        if type(layer) == Conv2D:
+            padding = 0 if layer.padding == 'valid' else (
+                int(layer.kernel_size[0] / 2) if layer.padding == 'same' else 0)
+            ws = ((ws - 1) * layer.strides[0]) - (2 * padding) + layer.kernel_size[0]
+        if isinstance(layer, Model):
+            ws = get_padding(layer.layers, ws)
+
+    return ws
 
 def test(model_name, dataset_file, tif_sample):
     model_design_file = [f for f in listdir('storage') if f == model_name+'.json']
@@ -850,7 +998,8 @@ def play4():
 def plot_confusion_matrix(y_true, y_pred, classes,
                           normalize=False,
                           title=None,
-                          cmap=plt.cm.Blues):
+                          cmap=plt.cm.Blues,
+                          plot=True):
     """
     This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
@@ -873,32 +1022,35 @@ def plot_confusion_matrix(y_true, y_pred, classes,
 
     print(cm)
 
-    fig, ax = plt.subplots()
-    im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
-    ax.figure.colorbar(im, ax=ax)
-    # We want to show all ticks...
-    ax.set(xticks=np.arange(cm.shape[1]),
-           yticks=np.arange(cm.shape[0]),
-           # ... and label them with the respective list entries
-           xticklabels=classes, yticklabels=classes,
-           title=title,
-           ylabel='True label',
-           xlabel='Predicted label')
+    if plot:
+        fig, ax = plt.subplots()
+        im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
+        ax.figure.colorbar(im, ax=ax)
+        # We want to show all ticks...
+        ax.set(xticks=np.arange(cm.shape[1]),
+               yticks=np.arange(cm.shape[0]),
+               # ... and label them with the respective list entries
+               xticklabels=classes, yticklabels=classes,
+               title=title,
+               ylabel='True label',
+               xlabel='Predicted label')
 
-    # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-             rotation_mode="anchor")
+        # Rotate the tick labels and set their alignment.
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+                 rotation_mode="anchor")
 
-    # Loop over data dimensions and create text annotations.
-    fmt = '.2f' if normalize else 'd'
-    thresh = cm.max() / 2.
-    for i in range(cm.shape[0]):
-        for j in range(cm.shape[1]):
-            ax.text(j, i, format(cm[i, j], fmt),
-                    ha="center", va="center",
-                    color="white" if cm[i, j] > thresh else "black")
-    fig.tight_layout()
-    return ax, cm
+        # Loop over data dimensions and create text annotations.
+        fmt = '.2f' if normalize else 'd'
+        thresh = cm.max() / 2.
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, format(cm[i, j], fmt),
+                        ha="center", va="center",
+                        color="white" if cm[i, j] > thresh else "black")
+        fig.tight_layout()
+        return ax, cm
+    else:
+        return cm
 
 def simple_progress_bar(current_value, total):
     increments = 50
