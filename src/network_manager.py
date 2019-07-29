@@ -638,7 +638,7 @@ def test(model_name, dataset_file, tif_sample):
     # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
     fnf_handler.readFile(tif_sample)
 
-    predict_generator = SortedPredictGenerator(NetworkParameters.BATCH_SIZE, bigdata_clip)
+    predict_generator = SortedPredictGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=bigdata_clip, patch_size=pad_amount)
 
     start = time.time()
     predict_mask = loaded_model.predict_generator(generator=predict_generator, steps=int(
