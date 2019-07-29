@@ -619,7 +619,7 @@ def test(model_name, dataset_file, tif_sample):
     print("Loaded model from disk")
 
     # evaluate loaded model on test data
-    loaded_model.compile(loss=keras.losses.binary_crossentropy, optimizer=keras.optimizers.Adam(), metrics=['accuracy'])
+    loaded_model.compile(loss=keras.losses.binary_crossentropy, optimizer=keras.optimizers.SGD(), metrics=['accuracy'])
 
     bigdata = None
     item_getter = itemgetter('bigdata')
@@ -629,8 +629,10 @@ def test(model_name, dataset_file, tif_sample):
     # bigdata_clip = bigdata[:, :900, :900]
     bigdata_clip = bigdata[:, :RasterParams.FNF_MAX_X, :RasterParams.FNF_MAX_Y]
 
-    pad_amount = int(SamplesConfig.PATCH_SIZE / 2)
-    bigdata_clip = np.pad(bigdata_clip, [(0, 0), (pad_amount, pad_amount), (pad_amount, pad_amount)], mode='constant')
+    pad_amount = get_padding(loaded_model.layers)
+    half_padding = int(pad_amount / 2)
+
+    bigdata_clip = np.pad(bigdata_clip, [(0, 0), (half_padding, half_padding), (half_padding, half_padding)], mode='constant')
 
     fnf_handler = GTiffHandler()
     # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
@@ -647,7 +649,6 @@ def test(model_name, dataset_file, tif_sample):
     end = time.time()
     print(end - start)
 
-
     bigdata_gt = None
     item_getter = itemgetter('bigdata_gt')
     with np.load(dataset_file) as df:
@@ -660,16 +661,16 @@ def test(model_name, dataset_file, tif_sample):
     temp_pred = predict_mask.reshape(predict_mask.shape[0] * predict_mask.shape[1])
     temp_gt = bigdata_gt_clip.reshape(bigdata_gt_clip.shape[0] * bigdata_gt_clip.shape[1])
 
-    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']))
+    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
 
-    plt.show()
+    plt.savefig('storage/' + model_name +'_conf_plot.pdf', bbox_inches='tight')
 
     print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
 
     unique, counts = np.unique(error_mask, return_counts=True)
     print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
 
-    np.savez_compressed('storage/confusion_matrix.npz', cm=cm)
+    np.savez_compressed('storage/'+ model_name +'confusion_matrix.npz', cm=cm)
 
     fnf_handler.src_Z = predict_mask
     fnf_handler.writeNewFile('storage/test_' + model_name + '_prediction.tif')
