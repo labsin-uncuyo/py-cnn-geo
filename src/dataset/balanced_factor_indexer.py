@@ -1,6 +1,7 @@
 
 import gdal
 import sys
+sys.path.append("..")
 import getopt
 import redis
 import curses

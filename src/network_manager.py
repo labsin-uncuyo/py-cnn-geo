@@ -55,14 +55,19 @@ def main(argv):
     network_name = ''
     dataset_file = ''
     tif_sample = ''
+    tif_real = ''
+    result_name = ''
+    augment = False
+    aug_granularity = 1
 
     operation = None
     include_validation = False
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:tr:tef:n:pa:",
+        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:r:tr:tef:n:o:g:pa:",
                                    ["create_sample=", "divide_sample=", "create_network=", "create_network_gen=",
-                                    "train_network=", "test=", "tif_sample=", "test_fullsize=", "network_name=", "play", "create_network_gen="])
+                                    "train_network=", "test=", "tif_sample=", "tif_real", "test_fullsize=",
+                                    "network_name=", "result_name=", "augment=", "play", "create_network_gen="])
     except getopt.GetoptError:
         print('network_manager.py -h')
         sys.exit(2)
@@ -105,6 +110,14 @@ def main(argv):
             network_name = arg
         elif opt in ["-e", "--tif_sample"]:
             tif_sample = arg
+        elif opt in ["-r", "--tif_real"]:
+            tif_real = arg
+        elif opt in ["-o", "--result_name"]:
+            result_name = arg
+        elif opt in ["-g", "--augment"]:
+            augment = True
+            aug_granularity = int(arg)
+
 
     print('Working with dataset file %s' % dataset_folder)
 
@@ -201,11 +214,11 @@ def main(argv):
         model.save_weights("storage/" + model_weights_name + ".h5")
         print("Saved model to disk")
     elif operation == OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD:
-        train_network_kfold(dataset_folder, network_name, 5, 2)
+        train_network_kfold(dataset_folder, network_name, 5, 2, augment, aug_granularity)
     elif operation == OPERATION_TEST_FULLSIZE_NETWORK:
         test_load_fullsize(model_file, weights_file, dataset_folder)
     elif operation == OPERATION_TEST:
-        test(network_name, dataset_file, tif_sample)
+        test(network_name, dataset_file, tif_sample, tif_real, result_name)
     elif operation == OPERATION_PLAY:
         play4()
 
@@ -483,12 +496,17 @@ def train_network(model, x_train, y_train, batch_size, epochs, x_val, y_val, net
 
     return model, accuracy_history.acc[-1]
 
-def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkParameters.EPOCHS):
+def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkParameters.EPOCHS, augment = False, aug_granularity = 1):
     # fix random seed for reproducibility
     seed = 7
     np.random.seed(seed)
 
-    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, DatasetConfig.MAX_PADDING)
+    if not augment:
+        dataset_padding = DatasetConfig.MAX_PADDING
+    else:
+        dataset_padding = (get_padding_from_params(cls=4, clks=5) * 2) + 1
+
+    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, dataset_padding)
 
     kfold = KFold(n_splits=splits, shuffle=True, random_state=seed)
 
@@ -505,7 +523,10 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
         model = create_model(cls=4, fms=64, clks=3, fcls=1, fcns=500, optimizer=SGD())
 
         patch_size = get_padding(model.layers)
-        offset = int(DatasetConfig.MAX_PADDING / 2) - int(patch_size / 2)
+        if not augment:
+            offset = int(DatasetConfig.MAX_PADDING / 2) - int(patch_size / 2)
+        else:
+            offset = 0
 
         kfold_netname = str(i+1) + '_' + network_name
 
@@ -529,23 +550,30 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
                                               dataset_gt=dataset_gt,
                                               indexes=train_idxs,
                                               patch_size=patch_size,
-                                              offset=offset)
+                                              offset=offset,
+                                              augment=augment,
+                                              aug_granularity=aug_granularity,
+                                              aug_patch_size=dataset_padding)
         val_generator = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE,
                                             dataset=dataset,
                                             dataset_gt=dataset_gt,
                                             indexes=validation_idxs,
                                             patch_size=patch_size,
-                                            offset=offset)
+                                            offset=offset,
+                                            augment=augment,
+                                            aug_granularity=aug_granularity,
+                                            aug_patch_size=dataset_padding)
 
         model.fit_generator(train_generator,
-                            #steps_per_epoch=len(train_idxs) // NetworkParameters.BATCH_SIZE,
-                            steps_per_epoch=NetworkParameters.BATCH_SIZE,
+                            steps_per_epoch=len(train_idxs) // NetworkParameters.BATCH_SIZE,
+                            #steps_per_epoch=NetworkParameters.BATCH_SIZE,
                             epochs=epochs,
                             verbose=1,
                             callbacks=[accuracy_history, early_stopping, checkpoint],
                             validation_data=val_generator,
-                            #validation_steps=len(validation_idxs) // NetworkParameters.BATCH_SIZE)
-                            validation_steps=NetworkParameters.BATCH_SIZE)
+                            validation_steps=len(validation_idxs) // NetworkParameters.BATCH_SIZE,
+                            use_multiprocessing=True)
+                            #validation_steps=NetworkParameters.BATCH_SIZE)
 
         plt.plot(range(1, epochs + 1), accuracy_history.acc, color=cmap(i))
         plt.plot(range(1, epochs + 1), accuracy_history.loss, color=cmap(i), linestyle='dashed')
@@ -603,7 +631,35 @@ def get_padding(layers, ws=None):
 
     return ws
 
-def test(model_name, dataset_file, tif_sample):
+def get_padding_from_params(cls, clks, rot_ang = 45, shear_ang = 45):
+    ws = 1
+
+    #calculate patch size for network
+    for cl in range(cls):
+        if cl == 0:
+            kern_size = clks
+        else:
+            kern_size = 3
+        #padding = int(kern_size/2)
+        #ws = (ws - 1) - (2 * padding) + kern_size
+        ws = (ws - 1) + kern_size
+
+    #calculate patch size for rotation
+    rws = int((ws * np.sin(np.deg2rad(rot_ang))) + (ws * np.cos(np.deg2rad(rot_ang))))
+
+    #calculate patch size for shearing
+    sws = rws + abs(np.sin(np.deg2rad(shear_ang)) * rws)
+    pad = int((sws - rws)) + 1
+
+    return pad
+
+def test(model_name, dataset_file, tif_sample, tif_real, result_name):
+
+    if result_name != '':
+        store_with_name = result_name
+    else:
+        store_with_name = model_name
+
     model_design_file = [f for f in listdir('storage') if f == model_name+'.json']
     model_weights_file = [f for f in listdir('storage') if f.startswith(model_name) and f.endswith('.h5')]
 
@@ -663,22 +719,77 @@ def test(model_name, dataset_file, tif_sample):
 
     ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
 
-    plt.savefig('storage/' + model_name +'_conf_plot.pdf', bbox_inches='tight')
+    plt.savefig('storage/' + store_with_name +'_conf_plot.pdf', bbox_inches='tight')
 
     print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
 
     unique, counts = np.unique(error_mask, return_counts=True)
     print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
 
-    np.savez_compressed('storage/'+ model_name +'confusion_matrix.npz', cm=cm)
+    np.savez_compressed('storage/'+ store_with_name +'confusion_matrix.npz', cm=cm)
+
+    plt.clf()
 
     fnf_handler.src_Z = predict_mask
-    fnf_handler.writeNewFile('storage/test_' + model_name + '_prediction.tif')
+    fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction.tif')
 
     fnf_handler.src_Z = error_mask
-    fnf_handler.writeNewFile('storage/test_' + model_name + '_error.tif')
+    fnf_handler.writeNewFile('storage/test_' + store_with_name + '_error.tif')
 
     fnf_handler.closeFile()
+
+    if tif_real != '':
+        real_fnf_handler = GTiffHandler()
+        real_fnf_handler.readFile(tif_real)
+
+        real_mask = np.array(real_fnf_handler.src_Z)
+
+        unique, counts = np.unique(real_mask, return_counts=True)
+        if(unique.shape[0] > 2):
+            real_mask[real_mask > 1] = 0
+
+        predict_mask_portion = predict_mask[:real_mask.shape[0], :real_mask.shape[1]]
+        bigdata_gt_portion = bigdata_gt_clip[:real_mask.shape[0], :real_mask.shape[1]]
+
+        our_error_mask = np.logical_xor(predict_mask_portion, real_mask)
+        fnf_error_mask = np.logical_xor(bigdata_gt_portion, real_mask)
+
+        temp_real = real_mask.reshape(real_mask.shape[0] * real_mask.shape[1])
+        temp_pred = predict_mask_portion.reshape(real_mask.shape[0] * real_mask.shape[1])
+        temp_gt = bigdata_gt_portion.reshape(real_mask.shape[0] * real_mask.shape[1])
+
+        ax, cm = plot_confusion_matrix(temp_real, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
+        plt.savefig('storage/' + store_with_name + '_conf_plot_real_vs_pred.pdf', bbox_inches='tight')
+        print(classification_report(temp_real, temp_pred, target_names=np.array(['no forest', 'forest'])))
+        np.savez_compressed('storage/' + store_with_name + 'confusion_matrix_real_vs_pred.npz', cm=cm)
+        plt.clf()
+
+        ax, cm = plot_confusion_matrix(temp_real, temp_gt, np.array(['No Forest', 'Forest']), plot=True)
+        plt.savefig('storage/' + store_with_name + '_conf_plot_real_vs_gt.pdf', bbox_inches='tight')
+        print(classification_report(temp_real, temp_gt, target_names=np.array(['no forest', 'forest'])))
+        np.savez_compressed('storage/' + store_with_name + 'confusion_matrix_real_vs_gt.npz', cm=cm)
+        plt.clf()
+
+        unique, counts = np.unique(our_error_mask, return_counts=True)
+        print("Test our accuracy ", counts[0] / (counts[0] + counts[1]))
+
+        unique, counts = np.unique(fnf_error_mask, return_counts=True)
+        print("Test gt accuracy ", counts[0] / (counts[0] + counts[1]))
+
+        real_fnf_handler.src_Z = predict_mask_portion
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction_portion.tif')
+
+        real_fnf_handler.src_Z = our_error_mask
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction_vs_real_error.tif')
+
+        real_fnf_handler.src_Z = bigdata_gt_portion
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_portion.tif')
+
+        real_fnf_handler.src_Z = fnf_error_mask
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_vs_real_error.tif')
+
+
+
 
 def test_load_fullsize(model_filename, weights_filename, dataset_folder):
     json_file = open(model_filename, 'r')
