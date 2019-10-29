@@ -520,7 +520,7 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
         print("=========================================")
 
         #model = create_model(cls=5, fms=128, clks=5, fcls=3, fcns=2000, optimizer=SGD())
-        model = create_model(cls=4, fms=64, clks=3, fcls=1, fcns=500, optimizer=SGD())
+        model = create_model(cls=4, fms=32, clks=3, fcls=1, fcns=500, optimizer=SGD())
 
         patch_size = get_padding(model.layers)
         if not augment:
@@ -536,11 +536,11 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
             json_file.write(model_json)
 
 
-        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}.hdf5"
+        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_accuraccy:.4f}.hdf5"
 
         accuracy_history = AccuracyHistory()
-        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='val_acc')
-        checkpoint = ModelCheckpoint(join("storage/kfold/temp/", filepath), monitor='val_acc', verbose=1,
+        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='val_accuracy')
+        checkpoint = ModelCheckpoint(join("storage/kfold/temp/", filepath), monitor='val_accuracy', verbose=1,
                                      save_best_only=False, mode='max')
 
         train_idxs, validation_idxs = divide_indexes(dataset_idxs[train], val_percentage=0.15)
