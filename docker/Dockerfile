@@ -72,7 +72,8 @@ RUN conda install -y python=${python_version} && \
       natsort \
       autokeras \
       redis \
-      tensorflow-gpu \
+      tensorflow-gpu=1.14.0 \
+      opencv-python==4.1.1.26 \
       && \
     conda install \
       bcolz \
