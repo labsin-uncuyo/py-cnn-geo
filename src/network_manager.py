@@ -514,6 +514,8 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
     cmap = plt.cm.get_cmap('hsv', splits+1)
 
+    store_dir = 'storage/kfold/'
+
     for i, (train, test) in enumerate(kfold_splits):
         print("=========================================")
         print("===== K Fold Validation step => %d/5 =====" % (i+1))
@@ -521,6 +523,8 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
         #model = create_model(cls=5, fms=128, clks=5, fcls=3, fcns=2000, optimizer=SGD())
         model = create_model(cls=4, fms=32, clks=3, fcls=1, fcns=500, optimizer=SGD())
+
+
 
         patch_size = get_padding(model.layers)
         if not augment:
@@ -532,15 +536,15 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
         # serialize model to JSON
         model_json = model.to_json()
-        with open("storage/kfold/" + kfold_netname + ".json", "w") as json_file:
+        with open(store_dir + kfold_netname + ".json", "w") as json_file:
             json_file.write(model_json)
 
 
-        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_accuraccy:.4f}.hdf5"
+        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_accuracy:.4f}.hdf5"
 
         accuracy_history = AccuracyHistory()
         early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='val_accuracy')
-        checkpoint = ModelCheckpoint(join("storage/kfold/temp/", filepath), monitor='val_accuracy', verbose=1,
+        checkpoint = ModelCheckpoint(join(store_dir, "temp/", filepath), monitor='val_accuracy', verbose=1,
                                      save_best_only=False, mode='max')
 
         train_idxs, validation_idxs = divide_indexes(dataset_idxs[train], val_percentage=0.15)
@@ -580,7 +584,7 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
         # serialize weights to HDF5
         model_weights_name = kfold_netname + '_' + "{0:.4f}-{1:.4f}".format(accuracy_history.loss[-1],accuracy_history.acc[-1])
-        model.save_weights("storage/kfold/" + model_weights_name + ".h5")
+        model.save_weights(store_dir + model_weights_name + ".h5")
         print("Saved model to disk")
 
         evalgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE,
@@ -604,15 +608,15 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
         print(classification_report(expected, predict_out, target_names=np.array(['no forest', 'forest'])))
 
-        confmat_file = "storage/kfold/" + kfold_netname + ".conf_mat.npz"
+        confmat_file = store_dir + kfold_netname + ".conf_mat.npz"
 
         if not exists(confmat_file):
             np.savez_compressed(confmat_file, cm=cm)
 
     plt.xlabel('Epochs')
     plt.ylabel('Validation Acc/Loss')
-    plt.savefig('storage/kfold/train_kfold.png', bbox_inches='tight')
-    plt.savefig('storage/kfold/train_kfold.pdf', bbox_inches='tight')
+    plt.savefig(store_dir + 'train_kfold.png', bbox_inches='tight')
+    plt.savefig(store_dir + 'train_kfold.pdf', bbox_inches='tight')
     plt.clf()
 
     return model, accuracy_history.acc[-1]
