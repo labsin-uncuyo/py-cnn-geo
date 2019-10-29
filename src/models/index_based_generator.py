@@ -24,11 +24,12 @@ class IndexBasedGenerator(Sequence):
         self.shear_range = shear_range
         self.shear_range_rad = np.deg2rad(self.shear_range)
 
-        center_shift = int(self.aug_patch_size / 2)
-        self.tf_center = tf.SimilarityTransform(translation=-center_shift)
-        self.tf_uncenter = tf.SimilarityTransform(translation=center_shift)
+        if augment:
+            center_shift = int(self.aug_patch_size / 2)
+            self.tf_center = tf.SimilarityTransform(translation=-center_shift)
+            self.tf_uncenter = tf.SimilarityTransform(translation=center_shift)
 
-        self.start_size = self.aug_patch_size // 2 - (self.patch_size // 2)
+            self.start_size = self.aug_patch_size // 2 - (self.patch_size // 2)
 
         self.batch_size = batch_size
         self.total_samples = len(indexes)
