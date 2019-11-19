@@ -1,27 +1,15 @@
-import gdal
-import getopt
-import sys
+import sys, getopt
 sys.path.append("..")
-import os
 import gc
 import numpy as np
+
 from operator import itemgetter
 from os import listdir
 from os.path import isfile, join
-from keras.models import Sequential
-from keras.layers import Conv2D, Flatten, Dense
-from keras.losses import binary_crossentropy
-from keras.optimizers import Adam, RMSprop, Adamax, SGD
+from search.random_forest_keras_batch_classifier import KerasBatchClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
-from search.keras_batch_classifier import KerasBatchClassifier
 from config import DatasetConfig, RasterParams
-from keras import backend as K
-
-
-num_cores = 8
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # for training on gpu
-os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
 def main(argv):
     """
@@ -31,64 +19,54 @@ def main(argv):
     :param argv: (dictionary) options and values specified in the command line
     """
 
-    print('Preparing for model parameter search')
-    gdal.UseExceptions()
+    print('Preparing for random forest parameter search')
     dataset_folder = None
-
-    #config = tf.ConfigProto()
-    #config.gpu_options.allow_growth = True
-    #session = tf.Session(config=config)
+    neighbors = None
+    finish_earlier = False
 
     try:
-        opts, args = getopt.getopt(argv, "hs:", ["dataset_folder="])
+        opts, args = getopt.getopt(argv, "hs:n:f", ["dataset_folder=", "neighbors="])
     except getopt.GetoptError:
-        print('model_search.py -s <dataset_folder>')
+        print('forest_search.py -s <dataset_folder>')
         sys.exit(2)
     for opt, arg in opts:
         if opt == "-h":
-            print('model_search.py -s <dataset_folder>')
+            print('forest_search.py -s <dataset_folder>')
             sys.exit()
         elif opt in ["-s", "--dataset_folder"]:
             dataset_folder = arg
-
+        elif opt in ["-n", "--neighbors"]:
+            neighbors = int(arg)
+        elif opt in ["-f", "--finish_earlier"]:
+            finish_earlier = True
     print('Working with dataset folder %s' % dataset_folder)
 
     # fix random seed for reproducibility
     seed = 7
     np.random.seed(seed)
 
-    parameter_searcher(dataset_folder)
+    parameter_searcher(dataset_folder, neighbors, finish_earlier)
 
     sys.exit()
 
 
-def parameter_searcher(dataset_folder):
-    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, DatasetConfig.MAX_PADDING)
-    #dataset = dataset_gt =  dataset_idxs = None
-
-    #train_idxs = validation_idxs = None
+def parameter_searcher(dataset_folder, neighbors, finish_earlier):
+    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, neighbors)
 
     # create model
     model = KerasBatchClassifier(build_fn=create_model, verbose=1)
     # define the grid search parameters
-    #cls = [4, 5, 6]
-    cls = [2]
-    fms = [32]
-    #fms = [128]
-    clks = [3]
-    #clks = [3]
-    fcls = [2]
-    #fcls = [3]
-    fcns = [500]
-    #fcns = [2000]
-    #lr = [0.01, 0.001, 0.0001]
-    #opt = [Adam(), RMSprop(), Adamax()]
+    n_ft = [3,5,'sqrt','auto']
+    n_est = [500, 1000, 1500]
+    crit = ['gini']
+    min_smpl_spl = [2, 5, 10]
+    min_smpl_leaf = [1, 2, 4]
 
-    name_args = ['cls', 'fms', 'clks', 'fcls', 'fcns']
-    param_grid = dict(cls=cls, fms=fms, clks=clks, fcls=fcls, fcns=fcns)
+    name_args = ['n_ft', 'n_est', 'crit', 'min_smpl_spl', 'min_smpl_leaf']
+    param_grid = dict(n_ft=n_ft, n_est=n_est, crit=crit, min_smpl_spl=min_smpl_spl, min_smpl_leaf=min_smpl_leaf)
     grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1, error_score='raise', verbose=1, cv=3)
 
-    grid_result = grid.fit(dataset_idxs, dataset_idxs, dataset=dataset, dataset_gt=dataset_gt, name_args=name_args)
+    grid_result = grid.fit(dataset_idxs, dataset_idxs, dataset=dataset, dataset_gt=dataset_gt, name_args=name_args, neighbors=neighbors, finish_earlier=finish_earlier)
 
     # summarize results
     print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
@@ -101,26 +79,11 @@ def parameter_searcher(dataset_folder):
     #print(model.summary())
 
 
-def create_model(cls=4, fms=64, clks=5, fcls=1, fcns=1000):
-    print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
-    K.clear_session()
-    # this may get harder to calculate if the
-    patch_size = (clks-1) + ((cls-1) * 2) + 1
+def create_model(n_ft='auto', n_est=5000, crit='gini', min_smpl_spl=2, min_smpl_leaf=1):
+    #print('---> Create model parameters: features %s, estimators %s, criterion %s, sample split %s, sample leaf %s' % (str(n_ft), str(n_est), str(crit), str(min_smpl_spl), str(min_smpl_leaf)))
 
-    input_shape = (patch_size, patch_size, DatasetConfig.DATASET_LST_BANDS_USED)
-
-    model = Sequential()
-    for i in range(cls):
-        if i == 0:
-            model.add(Conv2D(fms, kernel_size=(clks, clks), strides=(1, 1), activation='relu', input_shape=input_shape))
-        else:
-            model.add(Conv2D(fms, kernel_size=(3, 3), strides=(1, 1), activation='relu'))
-    model.add(Flatten())
-    for i in range(fcls):
-        model.add(Dense(fcns, activation='relu'))
-    model.add(Dense(2, activation='softmax'))
-
-    model.compile(loss=binary_crossentropy, optimizer=SGD(), metrics=['accuracy'])
+    model = RandomForestClassifier(n_estimators=50, max_features=n_ft, criterion=crit, min_samples_split=min_smpl_spl,
+                                 min_samples_leaf=min_smpl_leaf, warm_start=True, verbose=0, n_jobs=-1)
     return model
 
 

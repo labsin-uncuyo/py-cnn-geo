@@ -76,7 +76,7 @@ class KerasBatchClassifier(KerasClassifier):
         accuracy_history = AccuracyHistory()
         #early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='acc')
         model_checkpoint = ModelCheckpoint(
-            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_accuracy:.2f}.hdf5", monitor='val_accuracy',
+            "../storage/search/" + self.name + ".weights.{epoch:02d}-{loss:.4f}-{acc:.4f}-{val_acc:.2f}.hdf5", monitor='val_acc',
             verbose=5, save_best_only=False, mode="auto")
 
         #callbacks = [accuracy_history, early_stopping, model_checkpoint]
@@ -94,7 +94,7 @@ class KerasBatchClassifier(KerasClassifier):
             validation_data=valgen,
             validation_steps=int(val_idxs.shape[0] // NetworkParameters.BATCH_SIZE) + 1,
             callbacks=callbacks,
-            epochs=10,
+            epochs=1,
             **fit_args
         )
 
