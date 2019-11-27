@@ -3,6 +3,7 @@ import sys, getopt
 sys.path.append("..")
 import gc
 import numpy as np
+import _pickle as pkl
 
 from operator import itemgetter
 from os import listdir
@@ -11,6 +12,7 @@ from search.random_forest_keras_batch_classifier import KerasBatchClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
 from config import DatasetConfig, RasterParams
+from entities.parameter_search_status import ParameterSearchStatus
 
 
 def main(argv):
@@ -29,7 +31,9 @@ def main(argv):
     use_vector_features = False
 
     try:
-        opts, args = getopt.getopt(argv, "hs:n:r:vf", ["dataset_folder=", "neighbors=", "feature_reduction="])
+        opts, args = getopt.getopt(argv, "hs:n:r:vc:k:f",
+                                   ["dataset_folder=", "neighbors=", "continue_parameter=", "continue_kfold=",
+                                    "feature_reduction="])
     except getopt.GetoptError:
         print('forest_search.py -s <dataset_folder>')
         sys.exit(2)
@@ -45,6 +49,10 @@ def main(argv):
             feature_reduction = int(arg)
         elif opt in ["-v", "--use_vector"]:
             use_vector_features = True
+        elif opt in ["-c", "--continue_parameter"]:
+            continue_parameter = arg
+        elif opt in ["-k", "--continue_kfold"]:
+            continue_kfold = int(arg)
         elif opt in ["-f", "--finish_earlier"]:
             finish_earlier = True
     print('Working with dataset folder %s' % dataset_folder)
@@ -56,12 +64,31 @@ def main(argv):
     if feature_reduction is None:
         feature_reduction = 1
 
-    parameter_searcher(dataset_folder, neighbors, feature_reduction, use_vector_features, finish_earlier)
+    # This is a very rudimentary system to continue the parameter search from different points
+    search_status = ParameterSearchStatus()
+
+    store_sub_path = '../storage/rf-search/vec/'
+    if continue_parameter is not None:
+        search_status.set_continue_parameter(continue_parameter)
+
+        if continue_kfold is not None:
+            search_status.set_continue_kfold(continue_kfold)
+        else:
+            search_status.set_continue_kfold(1)
+
+        search_status.set_status(ParameterSearchStatus.CONTINUE_PREVIOUS_FAIL)
+
+        with open(join(store_sub_path, 'search-status.pkl'), 'wb') as output:
+            pkl.dump(search_status, output, -1)
+
+    parameter_searcher(dataset_folder, neighbors, feature_reduction, use_vector_features, search_status, store_sub_path,
+                       finish_earlier)
 
     sys.exit()
 
 
-def parameter_searcher(dataset_folder, neighbors, feature_reduction, use_vector_features, finish_earlier):
+def parameter_searcher(dataset_folder, neighbors, feature_reduction, use_vector_features, search_status, store_sub_path,
+                       finish_earlier):
     dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, neighbors)
 
     if use_vector_features:
@@ -81,10 +108,19 @@ def parameter_searcher(dataset_folder, neighbors, feature_reduction, use_vector_
 
     name_args = ['n_ft', 'n_est', 'min_smpl_spl', 'min_smpl_leaf']
     param_grid = dict(n_ft=n_ft, n_est=n_est, min_smpl_spl=min_smpl_spl, min_smpl_leaf=min_smpl_leaf)
-    grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1, error_score='raise', verbose=1, cv=3)
+
+    total_kfold = 3
+    grid = GridSearchCV(estimator=model, param_grid=param_grid, n_jobs=1, error_score='raise', verbose=1,
+                        cv=total_kfold)
 
     grid_result = grid.fit(dataset_idxs, dataset_idxs, dataset=dataset, dataset_gt=dataset_gt, name_args=name_args,
-                           neighbors=neighbors, paths=paths, center=center, finish_earlier=finish_earlier)
+                           neighbors=neighbors, paths=paths, center=center, finish_earlier=finish_earlier,
+                           store_sub_path=store_sub_path, total_kfold=total_kfold)
+
+    search_status.set_status = ParameterSearchStatus.DONE
+
+    with open(join(store_sub_path, 'search-status.pkl'), 'wb') as output:
+        pkl.dump(search_status, output, pkl.HIGHEST_PROTOCOL)
 
     # summarize results
     print("Best: %f using %s" % (grid_result.best_score_, grid_result.best_params_))
@@ -193,7 +229,7 @@ def calculate_feature_paths(neighbors, center, step):
 
     # bottom of the matrix
     path_current += path_i + 1
-    for path_i, h in enumerate(range(center, -1 * center, -1*step)):
+    for path_i, h in enumerate(range(center, -1 * center, -1 * step)):
         v = 1 * center
         traslation_x = h / center
         traslation_y = v / center
@@ -201,7 +237,7 @@ def calculate_feature_paths(neighbors, center, step):
 
     # right of the matrix
     path_current += path_i + 1
-    for path_i, v in enumerate(range(center, -1 * center, -1*step)):
+    for path_i, v in enumerate(range(center, -1 * center, -1 * step)):
         h = -1 * center
         traslation_x = h / center
         traslation_y = v / center
