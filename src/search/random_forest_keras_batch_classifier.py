@@ -338,12 +338,19 @@ class KerasBatchClassifier(KerasClassifier):
                 print('Test score: {test_acc:.4f}'.format(test_acc=test_acc))
 
                 print('Storing value accuracy...')
-                osopen(join(self.store_path, self.name + '-score_{test_acc:.4f}'.format(test_acc=test_acc) + '.txt'), O_CREAT)
+                metrics_filename = join(self.store_path, self.name + '-score_{test_acc:.4f}'.format(test_acc=test_acc) + '.txt')
 
                 cm = self.print_confusion_matrix(expected_test, predicted_test, np.array(['No Forest', 'Forest']))
 
-                print(
-                    classification_report(expected_test, predicted_test, target_names=np.array(['no forest', 'forest'])))
+                with open(metrics_filename, 'w') as output:
+                    output.write(str(cm))
+
+                class_report = classification_report(expected_test, predicted_test, target_names=np.array(['no forest', 'forest']))
+
+                print(class_report)
+
+                with open(metrics_filename, 'a') as output:
+                    output.write('\n\n' + str(class_report))
 
                 confmat_file = join(self.store_path, self.name + '.conf_mat.npz')
 
