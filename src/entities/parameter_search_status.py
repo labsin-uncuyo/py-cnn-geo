@@ -9,6 +9,7 @@ class ParameterSearchStatus:
     def __init__(self):
         self.current_parameter = ''
         self.current_kfold = 0
+        self.current_test = 0
         self.continue_parameter = ''
         self.continue_kfold = 0
         self.status = self.UNDER_EXECUTION
@@ -24,6 +25,12 @@ class ParameterSearchStatus:
 
     def get_current_kfold(self):
         return self.current_kfold
+
+    def set_current_test(self, test):
+        self.current_test = test
+
+    def get_current_test(self):
+        return self.current_test
 
     def set_continue_parameter(self, parameter_combination):
         self.continue_parameter = parameter_combination

@@ -256,89 +256,105 @@ class KerasBatchClassifier(KerasClassifier):
 
     def score(self, X, y, **kwargs):
         if self.perform_execution:
+            perform_test = False
+            if self.search_status.get_current_test() == 0 or self.search_status.get_current_test() == 2:
+                self.search_status.set_current_test(1)
+                perform_test = True
+            else:
+                self.search_status.set_current_test(self.search_status.get_current_test() + 1)
 
-            print('Scoring %d elements' % (X.shape[0]))
+            with open(join(self.store_sub_path, 'search-status.pkl'), 'wb') as output:
+                pkl.dump(self.search_status, output, -1)
 
-            estimator_step_size = 50
-            n_estimators = self.sk_params.get('n_est')
+            if perform_test:
+                print('Scoring %d elements' % (X.shape[0]))
 
-            steps = int(n_estimators / estimator_step_size) + 1
-            batch_size = int(X.shape[0] / steps) + 1
+                estimator_step_size = 50
+                n_estimators = self.sk_params.get('n_est')
 
-            predicted_test = np.zeros(shape=(X.shape[0],), dtype=np.uint8)
-            expected_test = np.zeros(shape=(X.shape[0],), dtype=np.uint8)
+                steps = int(n_estimators / estimator_step_size) + 1
+                batch_size = int(X.shape[0] / steps) + 1
 
-            random_trees_files = [f for f in listdir(self.store_path) if
-                                  not isfile(join(self.dir_name, f)) and f.startswith(
-                                      self.date_and_time) and f.endswith(
-                                      '.pkl')]
-            random_trees_files = natsorted(random_trees_files, key=lambda y: y.lower())
+                predicted_test = np.zeros(shape=(X.shape[0],), dtype=np.uint8)
+                expected_test = np.zeros(shape=(X.shape[0],), dtype=np.uint8)
 
-            print('Starting testing phase...')
+                random_trees_files = [f for f in listdir(self.store_path) if
+                                      not isfile(join(self.dir_name, f)) and f.startswith(
+                                          self.date_and_time) and f.endswith(
+                                          '.pkl')]
+                random_trees_files = natsorted(random_trees_files, key=lambda y: y.lower())
 
-            values_votes = np.zeros(shape=(X.shape[0], 2), dtype=np.float32)
+                print('Starting testing phase...')
 
-            print('Test progress: ', end='')
-            for i in range(steps):
-                print('{0}/{1} - '.format(i + 1, steps), end='')
-                start = (i) * batch_size
-                end = (i + 1) * batch_size
-                end = end if end < X.shape[0] else X.shape[0]
+                values_votes = np.zeros(shape=(X.shape[0], 2), dtype=np.float32)
 
-                X_partial_preprocessed_test_bag = np.zeros(shape=(end - start, self.n_features), dtype=np.float32)
-                pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-                X_partial_preprocessed_test_bag = np.array(
-                    pool.map(
-                        partial(self.feature_extraction_fn, feature_groups=self.feature_groups,
-                                neighbors=self.neighbors,
-                                paths=self.paths, center=self.center), X[start:end, :]))
-                expected_test[start:end] = np.array(pool.map(get_item_gt, X[start:end, :]))
-                pool.close()
-                pool.join()
+                print('Test progress: ', end='')
+                for i in range(steps):
+                    print('{0}/{1} - '.format(i + 1, steps), end='')
+                    start = (i) * batch_size
+                    end = (i + 1) * batch_size
+                    end = end if end < X.shape[0] else X.shape[0]
 
-                for file_i, rf_filename in enumerate(random_trees_files):
-                    rf_full_filename = join(self.store_path, rf_filename)
-                    self.model = joblib.load(rf_full_filename)
+                    X_partial_preprocessed_test_bag = np.zeros(shape=(end - start, self.n_features), dtype=np.float32)
+                    pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+                    X_partial_preprocessed_test_bag = np.array(
+                        pool.map(
+                            partial(self.feature_extraction_fn, feature_groups=self.feature_groups,
+                                    neighbors=self.neighbors,
+                                    paths=self.paths, center=self.center), X[start:end, :]))
+                    expected_test[start:end] = np.array(pool.map(get_item_gt, X[start:end, :]))
+                    pool.close()
+                    pool.join()
 
-                    if file_i == 0:
-                        batch_votes = np.multiply(self.model.predict_proba(X_partial_preprocessed_test_bag),
-                                                  self.model.n_estimators)
-                    else:
-                        batch_votes = np.add(batch_votes,
-                                             np.multiply(self.model.predict_proba(X_partial_preprocessed_test_bag),
-                                                         self.model.n_estimators))
+                    for file_i, rf_filename in enumerate(random_trees_files):
+                        rf_full_filename = join(self.store_path, rf_filename)
+                        self.model = joblib.load(rf_full_filename)
 
-                    self.model = None
-                    gc.collect()
+                        if file_i == 0:
+                            batch_votes = np.multiply(self.model.predict_proba(X_partial_preprocessed_test_bag),
+                                                      self.model.n_estimators)
+                        else:
+                            batch_votes = np.add(batch_votes,
+                                                 np.multiply(self.model.predict_proba(X_partial_preprocessed_test_bag),
+                                                             self.model.n_estimators))
 
-                values_votes[start:end] = batch_votes
+                        self.model = None
+                        gc.collect()
 
-            print('Finished!\n')
+                    values_votes[start:end] = batch_votes
 
-            predicted_test = np.divide(values_votes, self.final_estimators)
-            X_partial_preprocessed_test_bag = None
-            batch_votes = None
-            values_votes = None
-            gc.collect()
-            predicted_test = np.argmax(predicted_test, axis=1)
+                print('Finished!\n')
 
-            print('Calculating reports and metrics...')
+                predicted_test = np.divide(values_votes, self.final_estimators)
+                X_partial_preprocessed_test_bag = None
+                batch_votes = None
+                values_votes = None
+                gc.collect()
+                predicted_test = np.argmax(predicted_test, axis=1)
 
-            test_acc = accuracy_score(expected_test, predicted_test)
-            print('Test score: {test_acc:.4f}'.format(test_acc=test_acc))
+                print('Calculating reports and metrics...')
 
-            cm = self.print_confusion_matrix(expected_test, predicted_test, np.array(['No Forest', 'Forest']))
+                test_acc = accuracy_score(expected_test, predicted_test)
+                print('Test score: {test_acc:.4f}'.format(test_acc=test_acc))
 
-            print(
-                classification_report(expected_test, predicted_test, target_names=np.array(['no forest', 'forest'])))
+                print('Storing value accuracy...')
+                osopen(join(self.store_path, self.name + '-score_{test_acc:.4f}'.format(test_acc=test_acc) + '.txt'), O_CREAT)
 
-            confmat_file = join(self.store_path, self.name + '.conf_mat.npz')
+                cm = self.print_confusion_matrix(expected_test, predicted_test, np.array(['No Forest', 'Forest']))
 
-            print('Storing confusion matrix...')
-            if not exists(confmat_file):
-                np.savez_compressed(confmat_file, cm=cm)
+                print(
+                    classification_report(expected_test, predicted_test, target_names=np.array(['no forest', 'forest'])))
 
-            return test_acc
+                confmat_file = join(self.store_path, self.name + '.conf_mat.npz')
+
+                print('Storing confusion matrix...')
+                if not exists(confmat_file):
+                    np.savez_compressed(confmat_file, cm=cm)
+
+                return test_acc
+            else:
+                print('Passing second SCORE execution!\n')
+                return 0
         else:
             print('Passing this SCORE execution!\n')
             return 0
