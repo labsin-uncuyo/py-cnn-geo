@@ -13,7 +13,7 @@ from keras.layers import Conv2D, Flatten, Dense
 from keras.losses import binary_crossentropy
 from keras.optimizers import Adam, RMSprop, Adamax, SGD
 from sklearn.model_selection import GridSearchCV
-from search.keras_batch_classifier import KerasBatchClassifier
+from search.cnn_keras_batch_classifier import KerasBatchClassifier
 from config import DatasetConfig, RasterParams
 from keras import backend as K
 
@@ -42,11 +42,11 @@ def main(argv):
     try:
         opts, args = getopt.getopt(argv, "hs:", ["dataset_folder="])
     except getopt.GetoptError:
-        print('model_search.py -s <dataset_folder>')
+        print('cnn_search.py -s <dataset_folder>')
         sys.exit(2)
     for opt, arg in opts:
         if opt == "-h":
-            print('model_search.py -s <dataset_folder>')
+            print('cnn_search.py -s <dataset_folder>')
             sys.exit()
         elif opt in ["-s", "--dataset_folder"]:
             dataset_folder = arg

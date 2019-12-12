@@ -70,7 +70,10 @@ class IndexBasedGenerator(Sequence):
                            idx[2] + start_offset: idx[2] + end_offset])
             batch_y.append(self.dataset_gt[idx[0], idx[1], idx[2]])
 
-        batch_x = np.array(batch_x).reshape(len(batch_x), current_patch_size, current_patch_size, input_channels)
+        if not self.augment:
+            batch_x = np.array(batch_x).reshape(len(batch_x), current_patch_size, current_patch_size, input_channels)
+        else:
+            batch_x = np.moveaxis(np.array(batch_x),1,3)
         batch_x = batch_x.astype('float32')
 
         if self.augment:
@@ -79,7 +82,7 @@ class IndexBasedGenerator(Sequence):
             if self.aug_granularity > 1:
                 i = 0
                 temp_x = []
-                for x in batch_x:
+                for x_i, x in enumerate(batch_x):
                     temp_x.append(x)
                     i+=1
                     if i == self.aug_granularity:
@@ -101,7 +104,10 @@ class IndexBasedGenerator(Sequence):
                     x = self.cv_random_flip(x)
                     x = self.cv_random_rotation_and_shear(x)
                     final_batch_x.append(x[self.start_size:self.start_size+final_patch_size, self.start_size:self.start_size+final_patch_size, :])
+
             final_batch_x = np.array(final_batch_x)
+            final_batch_x = np.moveaxis(final_batch_x, 3, 1)
+            final_batch_x = final_batch_x.reshape(final_batch_x.shape[0], final_batch_x.shape[2], final_batch_x.shape[3], final_batch_x.shape[1])
             final_batch_x = final_batch_x.astype('float32')
         else:
             final_batch_x = batch_x
@@ -143,10 +149,13 @@ class IndexBasedGenerator(Sequence):
     def cv_random_flip(self, x):
         f = np.random.uniform()
         if f < 0.25:
+            #return np.fliplr(x)
             return cv2.flip(x, flipCode=0)
         elif f < 0.5:
+            #return np.flipud(x)
             return cv2.flip(x, flipCode=1)
         elif f < 0.75:
+            #return np.fliplr(np.flipud(x))
             return cv2.flip(x, flipCode=-1)
         return x
 

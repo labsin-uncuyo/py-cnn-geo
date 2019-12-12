@@ -8,7 +8,7 @@ import _pickle as pkl
 from operator import itemgetter
 from os import listdir
 from os.path import isfile, join
-from search.random_forest_keras_batch_classifier import KerasBatchClassifier
+from search.rf_keras_batch_classifier import KerasBatchClassifier
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import GridSearchCV
 from config import DatasetConfig, RasterParams
@@ -35,11 +35,11 @@ def main(argv):
                                    ["dataset_folder=", "neighbors=", "continue_parameter=", "continue_kfold=",
                                     "feature_reduction="])
     except getopt.GetoptError:
-        print('forest_search.py -s <dataset_folder>')
+        print('rf_search.py -s <dataset_folder>')
         sys.exit(2)
     for opt, arg in opts:
         if opt == "-h":
-            print('forest_search.py -s <dataset_folder>')
+            print('rf_search.py -s <dataset_folder>')
             sys.exit()
         elif opt in ["-s", "--dataset_folder"]:
             dataset_folder = arg

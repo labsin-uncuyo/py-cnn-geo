@@ -214,7 +214,7 @@ def main(argv):
         model.save_weights("storage/" + model_weights_name + ".h5")
         print("Saved model to disk")
     elif operation == OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD:
-        train_network_kfold(dataset_folder, network_name, 5, 2, augment, aug_granularity)
+        train_network_kfold(dataset_folder, network_name, 5, 10, augment, aug_granularity)
     elif operation == OPERATION_TEST_FULLSIZE_NETWORK:
         test_load_fullsize(model_file, weights_file, dataset_folder)
     elif operation == OPERATION_TEST:
@@ -504,7 +504,7 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
     if not augment:
         dataset_padding = DatasetConfig.MAX_PADDING
     else:
-        dataset_padding = (get_padding_from_params(cls=4, clks=5) * 2) + 1
+        dataset_padding = (get_padding_from_params(cls=4, clks=3) * 2) + 1
 
     dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, dataset_padding)
 
@@ -522,7 +522,7 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
         print("=========================================")
 
         #model = create_model(cls=5, fms=128, clks=5, fcls=3, fcns=2000, optimizer=SGD())
-        model = create_model(cls=4, fms=32, clks=3, fcls=1, fcns=500, optimizer=SGD())
+        model = create_model(cls=4, fms=64, clks=3, fcls=2, fcns=1000, optimizer=SGD())
 
 
 
@@ -540,11 +540,11 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
             json_file.write(model_json)
 
 
-        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_accuracy:.4f}.hdf5"
+        filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}.hdf5"
 
         accuracy_history = AccuracyHistory()
-        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='val_accuracy')
-        checkpoint = ModelCheckpoint(join(store_dir, "temp/", filepath), monitor='val_accuracy', verbose=1,
+        early_stopping = EarlyStopping(patience=5, verbose=5, mode="auto", monitor='val_acc')
+        checkpoint = ModelCheckpoint(join(store_dir, "temp/", filepath), monitor='val_acc', verbose=1,
                                      save_best_only=False, mode='max')
 
         train_idxs, validation_idxs = divide_indexes(dataset_idxs[train], val_percentage=0.15)
@@ -564,8 +564,8 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
                                             indexes=validation_idxs,
                                             patch_size=patch_size,
                                             offset=offset,
-                                            augment=augment,
-                                            aug_granularity=aug_granularity,
+                                            augment=False,
+                                            aug_granularity=None,
                                             aug_patch_size=dataset_padding)
 
         model.fit_generator(train_generator,
