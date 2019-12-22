@@ -8,7 +8,6 @@ from functools import partial
 from operator import itemgetter
 from os import listdir
 from os.path import exists, isfile, join
-from sklearn import svm
 from sklearn import linear_model
 from sklearn.externals import joblib
 from sklearn.metrics import confusion_matrix, classification_report
@@ -16,7 +15,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils.multiclass import unique_labels
 from config import DatasetConfig, NetworkParameters, RasterParams
 
-OPERATION_CREATE_SVM = 30
+OPERATION_CREATE_LSVM = 30
 OPERATION_PLAY = 99
 
 def main(argv):
@@ -33,17 +32,17 @@ def main(argv):
     finish_earlier = False
 
     try:
-        opts, args = getopt.getopt(argv, "hc:n:t:d:fp", ["create_svm=", "neighbors=", "model_name=", "storage_directory=", "finish_earlier", "play"])
+        opts, args = getopt.getopt(argv, "hc:n:t:d:fp", ["create_lsvm=", "neighbors=", "model_name=", "storage_directory=", "finish_earlier", "play"])
     except getopt.GetoptError:
-        print('svm_manager.py -h')
+        print('lsvm_manager.py -h')
         sys.exit(2)
     for opt, arg in opts:
         if opt == "-h":
-            print('svm_manager.py -c <dataset_folder>\n')
+            print('lsvm_manager.py -c <dataset_folder>\n')
             sys.exit()
-        elif opt in ["-c", "--create_svm"]:
+        elif opt in ["-c", "--create_lsvm"]:
             dataset_folder = arg
-            operation = OPERATION_CREATE_SVM
+            operation = OPERATION_CREATE_LSVM
         elif opt in ["-n", "--neighbors"]:
             neighbors = int(arg)
         elif opt in ["-t", "--model_name"]:
@@ -55,10 +54,10 @@ def main(argv):
         elif opt in ["-p", "--play"]:
             operation = OPERATION_PLAY
 
-    if operation == OPERATION_CREATE_SVM:
+    if operation == OPERATION_CREATE_LSVM:
         print('Working with dataset file %s' % dataset_folder)
         print('Using %s neighbors' % neighbors)
-        create_svm(dataset_folder, neighbors, store_directory, model_name, finish_earlier)
+        create_lsvm(dataset_folder, neighbors, store_directory, model_name, finish_earlier)
     elif operation == OPERATION_PLAY:
         play()
 
@@ -170,16 +169,8 @@ def get_patch_features(data_patch, feature_groups):
 
     return np_feat
 
-def shuffle_train(a):
-    assert len(a)
-    shuffled_a = np.empty(a.shape, dtype=a.dtype)
-    permutation = np.random.permutation(len(a))
-    for old_index, new_index in enumerate(permutation):
-        shuffled_a[new_index] = a[old_index]
-    return shuffled_a
-
-def create_svm(dataset_folder, neighbors, store_directory, model_name, finish_earlier):
-    print('Starting operation of SVM creation')
+def create_lsvm(dataset_folder, neighbors, store_directory, model_name, finish_earlier):
+    print('Starting operation of Linear SVM creation')
 
     # fix random seed for reproducibility
     seed = 7
@@ -196,7 +187,7 @@ def create_svm(dataset_folder, neighbors, store_directory, model_name, finish_ea
     if store_directory is not '':
         store_dir = store_directory
     else:
-        store_dir = 'storage/svm/'
+        store_dir = 'storage/mhuber-svm/'
 
     if model_name is not '':
         model_n = model_name
@@ -209,7 +200,7 @@ def create_svm(dataset_folder, neighbors, store_directory, model_name, finish_ea
     steps = int(X_train.shape[0] / batch_size) + 1
     estimator_steps = int(steps / estimator_step_size) + 1
 
-    sgd_lsvc = linear_model.SGDClassifier(random_state=seed, warm_start=True, verbose=1, n_jobs=-1, alpha=0.00001) # max_features=int(dataset.shape[1]/3)
+    sgd_lsvc = linear_model.SGDClassifier(loss='modified_huber', random_state=seed, warm_start=True, verbose=1, n_jobs=-1, alpha=0.00001) # max_features=int(dataset.shape[1]/3)
     epochs=1
     for e in range(epochs):
         print('\n==========================')
@@ -224,13 +215,22 @@ def create_svm(dataset_folder, neighbors, store_directory, model_name, finish_ea
 
             X_preprocessed_train_bag = np.zeros(shape=(end-start, dataset.shape[1]*feature_groups), dtype=np.float32)
             Y_preprocessed_train_bag = np.zeros(shape=(end-start), dtype=np.uint8)
-            pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-            X_preprocessed_train_bag = np.array(pool.map(partial(get_item_features, feature_groups=feature_groups, neighbors=neighbors), X_train[start:end,:]))
-            Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, X_train[start:end,:]))
-            pool.close()
-            pool.join()
+
+            for pxt_i, pxt_item in enumerate(X_train[start:end,:]):
+                X_preprocessed_train_bag[pxt_i] = get_item_features(pxt_item, feature_groups=feature_groups,
+                                                                    neighbors=neighbors)
+                Y_preprocessed_train_bag[pxt_i] = get_item_gt(pxt_item)
+
+            #pool = multiprocessing.Pool(processes=int(multiprocessing.cpu_count()/2))
+            #X_preprocessed_train_bag = np.array(pool.map(partial(get_item_features, feature_groups=feature_groups, neighbors=neighbors), X_train[start:end,:]))
+            #Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, X_train[start:end,:]))
+            #pool.close()
+            #pool.join()
 
             sgd_lsvc.partial_fit(X_preprocessed_train_bag, Y_preprocessed_train_bag, classes=[0,1])
+
+            X_preprocessed_train_bag = None
+            Y_preprocessed_train_bag = None
 
             gc.collect()
 
