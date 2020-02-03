@@ -6,6 +6,7 @@ import numpy as np
 import os
 import time
 
+from natsort import natsorted
 from operator import itemgetter
 from os import listdir
 from os.path import isfile, join, exists
@@ -15,7 +16,7 @@ from keras.losses import binary_crossentropy
 from keras.optimizers import Adam, RMSprop, Adamax, SGD
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
-from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import KFold
 from raster_rw import GTiffHandler
@@ -34,6 +35,7 @@ OPERATION_CREATE_NETWORK_WITH_GENERATOR = 31
 OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD = 32
 OPERATION_TRAIN_NETWORK = 40
 OPERATION_TEST_NETWORK = 50
+OPERATION_TEST_NETWORK_WITH_GENERATOR_AND_KFOLD = 52
 OPERATION_TEST_FULLSIZE_NETWORK = 60
 OPERATION_TEST = 70
 OPERATION_PLAY = 99
@@ -57,6 +59,7 @@ def main(argv):
     tif_sample = ''
     tif_real = ''
     result_name = ''
+    models_folder = ''
     augment = False
     aug_granularity = 1
 
@@ -64,10 +67,11 @@ def main(argv):
     include_validation = False
 
     try:
-        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:r:tr:tef:n:o:g:pa:",
+        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:r:f:n:o:g:pa:b:m:",
                                    ["create_sample=", "divide_sample=", "create_network=", "create_network_gen=",
-                                    "train_network=", "test=", "tif_sample=", "tif_real", "test_fullsize=",
-                                    "network_name=", "result_name=", "augment=", "play", "create_network_gen="])
+                                    "test=", "tif_sample=", "tif_real", "test_fullsize=", "network_name=",
+                                    "result_name=", "augment=", "play", "create_network_gen_kfold=",
+                                    "test_network_gen_kfold=", "models_folder="])
     except getopt.GetoptError:
         print('network_manager.py -h')
         sys.exit(2)
@@ -97,7 +101,10 @@ def main(argv):
         elif opt in ["-a", "--create_network_gen_kfold"]:
             dataset_folder = arg
             operation = OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD
-        elif opt in ["-tef", "--test_fullsize"]:
+        elif opt in ["-b", "--test_network_gen_kfold"]:
+            dataset_folder = arg
+            operation = OPERATION_TEST_NETWORK_WITH_GENERATOR_AND_KFOLD
+        elif opt in ["-f", "--test_fullsize"]:
             opt_args = arg.split('&')
             model_file = opt_args[0]
             weights_file = opt_args[1]
@@ -117,7 +124,8 @@ def main(argv):
         elif opt in ["-g", "--augment"]:
             augment = True
             aug_granularity = int(arg)
-
+        elif opt in ["-m", "--models_folder"]:
+            models_folder = arg
 
     print('Working with dataset file %s' % dataset_folder)
 
@@ -197,7 +205,7 @@ def main(argv):
 
         val_x, val_y = prepare_validation_from_idxs(dataset, dataset_gt, validation_idxs)
 
-        #val_x = val_x.astype('float32')
+        # val_x = val_x.astype('float32')
         val_y = keras.utils.to_categorical(val_y, 2)
 
         model.fit_generator(train_generator, steps_per_epoch=len(train_idxs) // NetworkParameters.BATCH_SIZE,
@@ -215,6 +223,8 @@ def main(argv):
         print("Saved model to disk")
     elif operation == OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD:
         train_network_kfold(dataset_folder, network_name, 5, 10, augment, aug_granularity)
+    elif operation == OPERATION_TEST_NETWORK_WITH_GENERATOR_AND_KFOLD:
+        test_network_kfold(dataset_folder, network_name, models_folder, 5, augment, aug_granularity)
     elif operation == OPERATION_TEST_FULLSIZE_NETWORK:
         test_load_fullsize(model_file, weights_file, dataset_folder)
     elif operation == OPERATION_TEST:
@@ -226,8 +236,9 @@ def main(argv):
 
 
 def prepare_validation_from_idxs(dataset, dataset_gt, validation_idxs):
-    val_x = np.zeros(shape=(validation_idxs.shape[0], SamplesConfig.PATCH_SIZE, SamplesConfig.PATCH_SIZE, dataset.shape[1]),
-                     dtype=dataset.dtype)
+    val_x = np.zeros(
+        shape=(validation_idxs.shape[0], SamplesConfig.PATCH_SIZE, SamplesConfig.PATCH_SIZE, dataset.shape[1]),
+        dtype=dataset.dtype)
     val_y = np.zeros(shape=(validation_idxs.shape[0],), dtype=dataset_gt.dtype)
     for i, idx in enumerate(validation_idxs):
         sample_x = np.array(dataset[idx[0], :, idx[1]: idx[1] + SamplesConfig.PATCH_SIZE,
@@ -239,6 +250,7 @@ def prepare_validation_from_idxs(dataset, dataset_gt, validation_idxs):
         val_y[i] = sample_y
 
     return val_x, val_y
+
 
 def prepare_generator_dataset(dataset_folder, padding):
     rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
@@ -299,6 +311,7 @@ def prepare_generator_dataset(dataset_folder, padding):
     gc.collect()
 
     return bigdata, bigdata_gt, bigdata_idx_mix
+
 
 def prepare_dataset(dataset_folder):
     sample_rasters_folders = [f for f in listdir(dataset_folder) if not isfile(join(dataset_folder, f))]
@@ -439,9 +452,9 @@ def divide_samples(samples_file, include_validation=False):
 
 def create_model(cls=4, fms=64, clks=3, fcls=1, fcns=1000, optimizer=Adam()):
     print('---> Create model parameters: ', cls, fms, clks, fcls, fcns)
-    #K.clear_session()
+    # K.clear_session()
     # this may get harder to calculate if the
-    patch_size = (clks-1) + ((cls-1) * 2) + 1
+    patch_size = (clks - 1) + ((cls - 1) * 2) + 1
 
     input_shape = (patch_size, patch_size, DatasetConfig.DATASET_LST_BANDS_USED)
 
@@ -458,6 +471,7 @@ def create_model(cls=4, fms=64, clks=3, fcls=1, fcns=1000, optimizer=Adam()):
 
     model.compile(loss=binary_crossentropy, optimizer=optimizer, metrics=['accuracy'])
     return model
+
 
 '''def create_network(input_shape):
     model = Sequential()
@@ -496,7 +510,9 @@ def train_network(model, x_train, y_train, batch_size, epochs, x_val, y_val, net
 
     return model, accuracy_history.acc[-1]
 
-def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkParameters.EPOCHS, augment = False, aug_granularity = 1):
+
+def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkParameters.EPOCHS, augment=False,
+                        aug_granularity=1):
     # fix random seed for reproducibility
     seed = 7
     np.random.seed(seed)
@@ -512,19 +528,17 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
     kfold_splits = kfold.split(X=dataset_idxs)
 
-    cmap = plt.cm.get_cmap('hsv', splits+1)
+    cmap = plt.cm.get_cmap('hsv', splits + 1)
 
     store_dir = 'storage/kfold/'
 
     for i, (train, test) in enumerate(kfold_splits):
         print("=========================================")
-        print("===== K Fold Validation step => %d/5 =====" % (i+1))
+        print("===== K Fold Validation step => %d/5 =====" % (i + 1))
         print("=========================================")
 
-        #model = create_model(cls=5, fms=128, clks=5, fcls=3, fcns=2000, optimizer=SGD())
+        # model = create_model(cls=5, fms=128, clks=5, fcls=3, fcns=2000, optimizer=SGD())
         model = create_model(cls=4, fms=64, clks=3, fcls=2, fcns=1000, optimizer=SGD())
-
-
 
         patch_size = get_padding(model.layers)
         if not augment:
@@ -532,13 +546,12 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
         else:
             offset = 0
 
-        kfold_netname = str(i+1) + '_' + network_name
+        kfold_netname = str(i + 1) + '_' + network_name
 
         # serialize model to JSON
         model_json = model.to_json()
         with open(store_dir + kfold_netname + ".json", "w") as json_file:
             json_file.write(model_json)
-
 
         filepath = kfold_netname + "-weights-improvement-{epoch:02d}-{val_loss:.4f}-{val_acc:.4f}.hdf5"
 
@@ -570,20 +583,21 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
         model.fit_generator(train_generator,
                             steps_per_epoch=len(train_idxs) // NetworkParameters.BATCH_SIZE,
-                            #steps_per_epoch=NetworkParameters.BATCH_SIZE,
+                            # steps_per_epoch=NetworkParameters.BATCH_SIZE,
                             epochs=epochs,
                             verbose=1,
                             callbacks=[accuracy_history, early_stopping, checkpoint],
                             validation_data=val_generator,
                             validation_steps=len(validation_idxs) // NetworkParameters.BATCH_SIZE,
                             use_multiprocessing=True)
-                            #validation_steps=NetworkParameters.BATCH_SIZE)
+        # validation_steps=NetworkParameters.BATCH_SIZE)
 
         plt.plot(range(1, epochs + 1), accuracy_history.acc, color=cmap(i))
         plt.plot(range(1, epochs + 1), accuracy_history.loss, color=cmap(i), linestyle='dashed')
 
         # serialize weights to HDF5
-        model_weights_name = kfold_netname + '_' + "{0:.4f}-{1:.4f}".format(accuracy_history.loss[-1],accuracy_history.acc[-1])
+        model_weights_name = kfold_netname + '_' + "{0:.4f}-{1:.4f}".format(accuracy_history.loss[-1],
+                                                                            accuracy_history.acc[-1])
         model.save_weights(store_dir + model_weights_name + ".h5")
         print("Saved model to disk")
 
@@ -595,7 +609,7 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
                                       offset=offset)
 
         predict_out = model.predict_generator(generator=evalgen,
-                                              steps=int(len(test) // NetworkParameters.BATCH_SIZE)+1,
+                                              steps=int(len(test) // NetworkParameters.BATCH_SIZE) + 1,
                                               use_multiprocessing=True,
                                               verbose=1)
         predict_out = np.argmax(predict_out, axis=1)
@@ -621,6 +635,102 @@ def train_network_kfold(dataset_folder, network_name, splits, epochs=NetworkPara
 
     return model, accuracy_history.acc[-1]
 
+
+def test_network_kfold(dataset_folder, network_name, models_folder, splits, augment=False, aug_granularity=1):
+    # fix random seed for reproducibility
+    seed = 7
+    np.random.seed(seed)
+
+    if not augment:
+        dataset_padding = DatasetConfig.MAX_PADDING
+    else:
+        dataset_padding = (get_padding_from_params(cls=11, clks=5) * 2) + 1
+
+    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, dataset_padding)
+
+    kfold = KFold(n_splits=splits, shuffle=True, random_state=seed)
+
+    kfold_splits = kfold.split(X=dataset_idxs)
+
+    cmap = plt.cm.get_cmap('hsv', splits + 1)
+
+    store_dir = 'storage/kfold/'
+
+    models_files = [f for f in listdir(models_folder) if isfile(join(models_folder, f)) and f.endswith('json')]
+    models_weights = [f for f in listdir(models_folder) if isfile(join(models_folder, f)) and f.endswith('h5')]
+
+    natsorted(models_files, key=lambda y: y.lower())
+    natsorted(models_weights, key=lambda y: y.lower())
+
+    print(models_files)
+    print(models_weights)
+
+    for i, (train, test) in enumerate(kfold_splits):
+        print("=========================================")
+        print("===== K Fold Test step => %d/5 =====" % (i + 1))
+        print("=========================================")
+
+        json_file = open(models_files[i], 'r')
+        loaded_model_json = json_file.read()
+        json_file.close()
+        model = model_from_json(loaded_model_json)
+        # load weights into new model
+        model.load_weights(models_weights[i])
+
+        patch_size = get_padding(model.layers)
+        if not augment:
+            offset = int(DatasetConfig.MAX_PADDING / 2) - int(patch_size / 2)
+        else:
+            offset = 0
+
+        kfold_netname = str(i + 1) + '_' + network_name
+
+        # serialize model to JSON
+        model_json = model.to_json()
+        with open(store_dir + kfold_netname + ".json", "w") as json_file:
+            json_file.write(model_json)
+
+        evalgen = IndexBasedGenerator(batch_size=NetworkParameters.BATCH_SIZE,
+                                      dataset=dataset,
+                                      dataset_gt=dataset_gt,
+                                      indexes=dataset_idxs[test],
+                                      patch_size=patch_size,
+                                      offset=offset)
+
+        predict_out = model.predict_generator(generator=evalgen,
+                                              steps=int(len(test) // NetworkParameters.BATCH_SIZE) + 1,
+                                              use_multiprocessing=True,
+                                              verbose=1)
+        predict_out = np.argmax(predict_out, axis=1)
+
+        expected = np.zeros(shape=(len(test),), dtype=np.uint8)
+        for j, idx in enumerate(dataset_idxs[test]):
+            expected[j] = dataset_gt[idx[0], idx[1], idx[2]]
+
+        test_acc = accuracy_score(expected, predict_out)
+
+        cm = plot_confusion_matrix(expected, predict_out, np.array(['No Forest', 'Forest']), plot=False)
+
+        class_report = classification_report(expected, predict_out, target_names=np.array(['no forest', 'forest']))
+
+        confmat_file = store_dir + kfold_netname + ".conf_mat.npz"
+
+        if not exists(confmat_file):
+            np.savez_compressed(confmat_file, cm=cm)
+
+        metrics_filename = join(store_dir, kfold_netname + '-score_{test_acc:.4f}'.format(test_acc=test_acc) + '.txt')
+
+        with open(metrics_filename, 'w') as output:
+            output.write(str(cm))
+
+        print(class_report)
+
+        with open(metrics_filename, 'a') as output:
+            output.write('\n\n' + str(class_report))
+
+    return None
+
+
 def get_padding(layers, ws=None):
     ws = ws if ws is not None else 1
 
@@ -635,40 +745,41 @@ def get_padding(layers, ws=None):
 
     return ws
 
-def get_padding_from_params(cls, clks, rot_ang = 45, shear_ang = 45):
+
+def get_padding_from_params(cls, clks, rot_ang=45, shear_ang=45):
     ws = 1
 
-    #calculate patch size for network
+    # calculate patch size for network
     for cl in range(cls):
         if cl == 0:
             kern_size = clks
         else:
             kern_size = 3
-        #padding = int(kern_size/2)
-        #ws = (ws - 1) - (2 * padding) + kern_size
+        # padding = int(kern_size/2)
+        # ws = (ws - 1) - (2 * padding) + kern_size
         ws = (ws - 1) + kern_size
 
-    #calculate patch size for rotation
+    # calculate patch size for rotation
     rws = int((ws * np.sin(np.deg2rad(rot_ang))) + (ws * np.cos(np.deg2rad(rot_ang))))
 
-    #calculate patch size for shearing
+    # calculate patch size for shearing
     sws = rws + abs(np.sin(np.deg2rad(shear_ang)) * rws)
     pad = int((sws - rws)) + 1
 
     return pad
 
-def test(model_name, dataset_file, tif_sample, tif_real, result_name):
 
+def test(model_name, dataset_file, tif_sample, tif_real, result_name):
     if result_name != '':
         store_with_name = result_name
     else:
         store_with_name = model_name
 
-    model_design_file = [f for f in listdir('storage') if f == model_name+'.json']
+    model_design_file = [f for f in listdir('storage') if f == model_name + '.json']
     model_weights_file = [f for f in listdir('storage') if f.startswith(model_name) and f.endswith('.h5')]
 
-    assert(len(model_design_file) == 1)
-    assert(len(model_weights_file) == 1)
+    assert (len(model_design_file) == 1)
+    assert (len(model_weights_file) == 1)
     json_file = open(join("storage", model_design_file[0]), 'r')
     loaded_model_json = json_file.read()
     json_file.close()
@@ -692,13 +803,15 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name):
     pad_amount = get_padding(loaded_model.layers)
     half_padding = int(pad_amount / 2)
 
-    bigdata_clip = np.pad(bigdata_clip, [(0, 0), (half_padding, half_padding), (half_padding, half_padding)], mode='constant')
+    bigdata_clip = np.pad(bigdata_clip, [(0, 0), (half_padding, half_padding), (half_padding, half_padding)],
+                          mode='constant')
 
     fnf_handler = GTiffHandler()
     # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
     fnf_handler.readFile(tif_sample)
 
-    predict_generator = SortedPredictGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=bigdata_clip, patch_size=pad_amount)
+    predict_generator = SortedPredictGenerator(batch_size=NetworkParameters.BATCH_SIZE, dataset=bigdata_clip,
+                                               patch_size=pad_amount)
 
     start = time.time()
     predict_mask = loaded_model.predict_generator(generator=predict_generator, steps=int(
@@ -723,14 +836,14 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name):
 
     ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
 
-    plt.savefig('storage/' + store_with_name +'_conf_plot.pdf', bbox_inches='tight')
+    plt.savefig('storage/' + store_with_name + '_conf_plot.pdf', bbox_inches='tight')
 
     print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
 
     unique, counts = np.unique(error_mask, return_counts=True)
     print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
 
-    np.savez_compressed('storage/'+ store_with_name +'confusion_matrix.npz', cm=cm)
+    np.savez_compressed('storage/' + store_with_name + 'confusion_matrix.npz', cm=cm)
 
     plt.clf()
 
@@ -749,7 +862,7 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name):
         real_mask = np.array(real_fnf_handler.src_Z)
 
         unique, counts = np.unique(real_mask, return_counts=True)
-        if(unique.shape[0] > 2):
+        if (unique.shape[0] > 2):
             real_mask[real_mask > 1] = 0
 
         predict_mask_portion = predict_mask[:real_mask.shape[0], :real_mask.shape[1]]
@@ -791,8 +904,6 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name):
 
         real_fnf_handler.src_Z = fnf_error_mask
         real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_vs_real_error.tif')
-
-
 
 
 def test_load_fullsize(model_filename, weights_filename, dataset_folder):
@@ -964,14 +1075,14 @@ def play2(samples_file):
 
 def play3():
     json_file = open("storage/full_upsample.json", 'r')
-    #json_file = open("storage/factor-5p-upsample.json", 'r')
+    # json_file = open("storage/factor-5p-upsample.json", 'r')
     loaded_model_json = json_file.read()
     json_file.close()
     loaded_model = model_from_json(loaded_model_json)
     # load weights into new model
     loaded_model.load_weights("storage/balanced-10p-upsample_0.8539.h5")
-    #loaded_model.load_weights("storage/temp/full-upsample-weights-improvement-04-0.98.hdf5")
-    #loaded_model.load_weights("storage/factor-5p-upsample_0.9692.h5")
+    # loaded_model.load_weights("storage/temp/full-upsample-weights-improvement-04-0.98.hdf5")
+    # loaded_model.load_weights("storage/factor-5p-upsample_0.9692.h5")
 
     print("Loaded model from disk")
 
@@ -985,7 +1096,7 @@ def play3():
     with np.load(dataset_file) as df:
         bigdata = item_getter(df)
 
-    #bigdata_clip = bigdata[:, :900, :900]
+    # bigdata_clip = bigdata[:, :900, :900]
     bigdata_clip = bigdata
 
     pad_amount = int(SamplesConfig.PATCH_SIZE / 2)
@@ -999,7 +1110,7 @@ def play3():
     sys.exit()
 
     fnf_handler = GTiffHandler()
-    #fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
+    # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
     fnf_handler.readFile("storage/FNF_BALANCED_15.tif")
 
     bigdata_gt = None
@@ -1007,7 +1118,7 @@ def play3():
     with np.load(dataset_file) as df:
         bigdata_gt = item_getter(df)
 
-    #bigdata_gt_clip = bigdata_gt[:900, :900]
+    # bigdata_gt_clip = bigdata_gt[:900, :900]
     bigdata_gt_clip = bigdata_gt
 
     error_mask = np.logical_xor(predict_mask, bigdata_gt_clip)
@@ -1015,14 +1126,14 @@ def play3():
     temp_pred = predict_mask.reshape(predict_mask.shape[0] * predict_mask.shape[1])
     temp_gt = bigdata_gt_clip.reshape(bigdata_gt_clip.shape[0] * bigdata_gt_clip.shape[1])
 
-    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest','Forest']))
+    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']))
 
     plt.show()
 
     print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
 
     unique, counts = np.unique(error_mask, return_counts=True)
-    print("Test accuracy ", counts[0] / (counts[0]+counts[1]))
+    print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
 
     np.savez_compressed('storage/test_balanced_test15_10p_conf.npz', cm=cm)
 
@@ -1032,19 +1143,19 @@ def play3():
     fnf_handler.src_Z = error_mask
     fnf_handler.writeNewFile('storage/test_balanced_test15_10p_error.tif')
 
-
     fnf_handler.closeFile()
+
 
 def play4():
     json_file = open("storage/full_upsample.json", 'r')
-    #json_file = open("storage/factor-5p-upsample.json", 'r')
+    # json_file = open("storage/factor-5p-upsample.json", 'r')
     loaded_model_json = json_file.read()
     json_file.close()
     loaded_model = model_from_json(loaded_model_json)
     # load weights into new model
     loaded_model.load_weights("storage/balanced-10p-upsample_0.8539.h5")
-    #loaded_model.load_weights("storage/temp/full-upsample-weights-improvement-04-0.98.hdf5")
-    #loaded_model.load_weights("storage/factor-5p-upsample_0.9692.h5")
+    # loaded_model.load_weights("storage/temp/full-upsample-weights-improvement-04-0.98.hdf5")
+    # loaded_model.load_weights("storage/factor-5p-upsample_0.9692.h5")
 
     print("Loaded model from disk")
 
@@ -1058,24 +1169,25 @@ def play4():
     with np.load(dataset_file) as df:
         bigdata = item_getter(df)
 
-    #bigdata_clip = bigdata[:, :900, :900]
+    # bigdata_clip = bigdata[:, :900, :900]
     bigdata_clip = bigdata[:, :RasterParams.FNF_MAX_X, :RasterParams.FNF_MAX_Y]
 
     pad_amount = int(SamplesConfig.PATCH_SIZE / 2)
     bigdata_clip = np.pad(bigdata_clip, [(0, 0), (pad_amount, pad_amount), (pad_amount, pad_amount)], mode='constant')
 
-
     predict_generator = SortedPredictGenerator(NetworkParameters.BATCH_SIZE, bigdata_clip)
 
     start = time.time()
-    predict_mask = loaded_model.predict_generator(generator=predict_generator, steps=int((RasterParams.FNF_MAX_X*RasterParams.FNF_MAX_Y)/NetworkParameters.BATCH_SIZE)+1, use_multiprocessing=True, verbose=1)
+    predict_mask = loaded_model.predict_generator(generator=predict_generator, steps=int(
+        (RasterParams.FNF_MAX_X * RasterParams.FNF_MAX_Y) / NetworkParameters.BATCH_SIZE) + 1, use_multiprocessing=True,
+                                                  verbose=1)
     predict_mask = np.argmax(predict_mask, axis=1)
     predict_mask = predict_mask.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
     end = time.time()
     print(end - start)
 
     fnf_handler = GTiffHandler()
-    #fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
+    # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
     fnf_handler.readFile("storage/FNF_BALANCED_15.tif")
 
     bigdata_gt = None
@@ -1083,7 +1195,7 @@ def play4():
     with np.load(dataset_file) as df:
         bigdata_gt = item_getter(df)
 
-    #bigdata_gt_clip = bigdata_gt[:900, :900]
+    # bigdata_gt_clip = bigdata_gt[:900, :900]
     bigdata_gt_clip = bigdata_gt
 
     error_mask = np.logical_xor(predict_mask, bigdata_gt_clip)
@@ -1091,14 +1203,14 @@ def play4():
     temp_pred = predict_mask.reshape(predict_mask.shape[0] * predict_mask.shape[1])
     temp_gt = bigdata_gt_clip.reshape(bigdata_gt_clip.shape[0] * bigdata_gt_clip.shape[1])
 
-    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest','Forest']))
+    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']))
 
     plt.show()
 
     print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
 
     unique, counts = np.unique(error_mask, return_counts=True)
-    print("Test accuracy ", counts[0] / (counts[0]+counts[1]))
+    print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
 
     np.savez_compressed('storage/test_balanced_test15_10p_conf_fff.npz', cm=cm)
 
@@ -1108,8 +1220,8 @@ def play4():
     fnf_handler.src_Z = error_mask
     fnf_handler.writeNewFile('storage/test_balanced_test15_10p_error_fff.tif')
 
-
     fnf_handler.closeFile()
+
 
 def plot_confusion_matrix(y_true, y_pred, classes,
                           normalize=False,
@@ -1167,6 +1279,7 @@ def plot_confusion_matrix(y_true, y_pred, classes,
         return ax, cm
     else:
         return cm
+
 
 def simple_progress_bar(current_value, total):
     increments = 50

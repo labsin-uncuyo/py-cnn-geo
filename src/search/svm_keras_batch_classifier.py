@@ -129,11 +129,12 @@ class KerasBatchClassifier(KerasClassifier):
 
             print('Train progress: ', end='')
 
-            epochs = 10
+            epochs = 2
             for e in range(epochs):
                 print('\n========== EPOCH %s ===========\n' % str(e + 1))
 
-                np.random.shuffle(X_train)
+                X_train = self.shuffle_in_unison(X_train)
+                #np.random.shuffle(X_train)
                 for i in range(estimator_steps):
                     print('{0}/{1} - '.format(i + 1, estimator_steps), end='')
                     start = (i * estimator_step_size) * batch_size
@@ -267,6 +268,14 @@ class KerasBatchClassifier(KerasClassifier):
         else:
             print('Passing this SCORE execution!\n')
             return 0
+
+    def shuffle_in_unison(self, a):
+        assert len(a)
+        shuffled_a = np.empty(a.shape, dtype=a.dtype)
+        permutation = np.random.permutation(len(a))
+        for old_index, new_index in enumerate(permutation):
+            shuffled_a[new_index] = a[old_index]
+        return shuffled_a
 
     def divide_indexes(self, indexes_file):
         split_1 = int(SamplesConfig.TEST_PERCENTAGE * indexes_file.shape[0])

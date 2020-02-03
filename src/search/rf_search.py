@@ -29,6 +29,7 @@ def main(argv):
     feature_reduction = None
     finish_earlier = False
     use_vector_features = False
+    continue_parameter = None
 
     try:
         opts, args = getopt.getopt(argv, "hs:n:r:vc:k:f",

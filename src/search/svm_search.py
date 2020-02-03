@@ -8,7 +8,7 @@ import _pickle as pkl
 from operator import itemgetter
 from os import listdir
 from os.path import isfile, join
-from search.svm_keras_batch_classifier import KerasBatchClassifier
+from search.svm_direct_keras_batch_classifier import KerasBatchClassifier
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import GridSearchCV
 from config import DatasetConfig, RasterParams
@@ -138,7 +138,9 @@ def parameter_searcher(dataset_folder, neighbors, feature_reduction, use_vector_
 
 def create_model(alpha=0.0001, loss='hinge', penalty='l2', seed=7):
 
-    model = SGDClassifier(loss=loss, alpha=alpha, penalty=penalty, random_state=seed, warm_start=True, verbose=1, n_jobs=-1)
+    #model = SGDClassifier(loss=loss, alpha=alpha, penalty=penalty, random_state=seed, warm_start=True, verbose=1, n_jobs=-1)
+    model = SGDClassifier(loss=loss, alpha=alpha, penalty=penalty, random_state=seed, verbose=1, n_jobs=-1,
+                          max_iter=1500, early_stopping=True, validation_fraction=0.15, n_iter_no_change=20)
 
     return model
 
