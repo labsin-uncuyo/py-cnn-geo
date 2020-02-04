@@ -25,7 +25,7 @@ from config import SamplesConfig, NetworkParameters, RasterParams, DatasetConfig
 from models.index_based_generator import IndexBasedGenerator
 from models.sorted_predict_generator import SortedPredictGenerator
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # for training on gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # for training on gpu
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
 OPERATION_CREATE_SAMPLES = 10
@@ -654,13 +654,13 @@ def test_network_kfold(dataset_folder, network_name, models_folder, splits, augm
 
     cmap = plt.cm.get_cmap('hsv', splits + 1)
 
-    store_dir = 'storage/kfold/'
+    store_dir = 'storage/search-plan-comb/test'
 
     models_files = [f for f in listdir(models_folder) if isfile(join(models_folder, f)) and f.endswith('json')]
     models_weights = [f for f in listdir(models_folder) if isfile(join(models_folder, f)) and f.endswith('h5')]
 
-    natsorted(models_files, key=lambda y: y.lower())
-    natsorted(models_weights, key=lambda y: y.lower())
+    models_files = natsorted(models_files, key=lambda y: y.lower())
+    models_weights = natsorted(models_weights, key=lambda y: y.lower())
 
     print(models_files)
     print(models_weights)
@@ -670,12 +670,12 @@ def test_network_kfold(dataset_folder, network_name, models_folder, splits, augm
         print("===== K Fold Test step => %d/5 =====" % (i + 1))
         print("=========================================")
 
-        json_file = open(models_files[i], 'r')
+        json_file = open(join(models_folder, models_files[i]), 'r')
         loaded_model_json = json_file.read()
         json_file.close()
         model = model_from_json(loaded_model_json)
         # load weights into new model
-        model.load_weights(models_weights[i])
+        model.load_weights(join(models_folder, models_weights[i]))
 
         patch_size = get_padding(model.layers)
         if not augment:
