@@ -9,7 +9,7 @@ from operator import itemgetter
 from os import listdir
 from os.path import isfile, join
 from search.rf_keras_batch_classifier import KerasBatchClassifier
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV
 from config import DatasetConfig, RasterParams
 from entities.parameter_search_status import ParameterSearchStatus

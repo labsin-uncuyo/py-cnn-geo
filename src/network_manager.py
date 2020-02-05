@@ -1,11 +1,15 @@
 import sys, getopt
 import keras
 import gc
-import matplotlib.pylab as plt
-import numpy as np
+import multiprocessing
 import os
 import time
+import matplotlib.pylab as plt
+import numpy as np
 
+from functools import partial
+
+from dask.array import store
 from natsort import natsorted
 from operator import itemgetter
 from os import listdir
@@ -16,9 +20,11 @@ from keras.losses import binary_crossentropy
 from keras.optimizers import Adam, RMSprop, Adamax, SGD
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras import backend as K
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.externals import joblib
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
-from sklearn.utils.multiclass import unique_labels
 from sklearn.model_selection import KFold
+from sklearn.utils.multiclass import unique_labels
 from raster_rw import GTiffHandler
 from entities.AccuracyHistory import AccuracyHistory
 from config import SamplesConfig, NetworkParameters, RasterParams, DatasetConfig, TestParameters
@@ -33,6 +39,7 @@ OPERATION_DIVIDE_SAMPLES = 20
 OPERATION_CREATE_NETWORK = 30
 OPERATION_CREATE_NETWORK_WITH_GENERATOR = 31
 OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD = 32
+OPERATION_CREATE_RF_WITH_GENERATOR_AND_KFOLD = 33
 OPERATION_TRAIN_NETWORK = 40
 OPERATION_TEST_NETWORK = 50
 OPERATION_TEST_NETWORK_WITH_GENERATOR_AND_KFOLD = 52
@@ -66,12 +73,17 @@ def main(argv):
     operation = None
     include_validation = False
 
+    neighbors = None
+    use_vector = False
+    reduction_factor = None
+
     try:
-        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:r:f:n:o:g:pa:b:m:",
+        opts, args = getopt.getopt(argv, "hs:d:c:k:z:e:r:f:n:o:g:pa:b:m:q:j:vl:",
                                    ["create_sample=", "divide_sample=", "create_network=", "create_network_gen=",
                                     "test=", "tif_sample=", "tif_real", "test_fullsize=", "network_name=",
                                     "result_name=", "augment=", "play", "create_network_gen_kfold=",
-                                    "test_network_gen_kfold=", "models_folder="])
+                                    "test_network_gen_kfold=", "models_folder=", "create_rf_gen=", "neighbors=",
+                                    "use_vector", "reduction_factor"])
     except getopt.GetoptError:
         print('network_manager.py -h')
         sys.exit(2)
@@ -104,6 +116,15 @@ def main(argv):
         elif opt in ["-b", "--test_network_gen_kfold"]:
             dataset_folder = arg
             operation = OPERATION_TEST_NETWORK_WITH_GENERATOR_AND_KFOLD
+        elif opt in ["-q", "--create_rf_gen_kfold"]:
+            dataset_folder = arg
+            operation = OPERATION_CREATE_RF_WITH_GENERATOR_AND_KFOLD
+        elif opt in ["-j", "--neighbors"]:
+            neighbors = int(arg)
+        elif opt in ["-v", "--use_vector"]:
+            use_vector = True
+        elif opt in ["-l", "--reduction_factor"]:
+            reduction_factor = int(arg)
         elif opt in ["-f", "--test_fullsize"]:
             opt_args = arg.split('&')
             model_file = opt_args[0]
@@ -223,6 +244,8 @@ def main(argv):
         print("Saved model to disk")
     elif operation == OPERATION_CREATE_NETWORK_WITH_GENERATOR_AND_KFOLD:
         train_network_kfold(dataset_folder, network_name, 5, 10, augment, aug_granularity)
+    elif operation == OPERATION_CREATE_RF_WITH_GENERATOR_AND_KFOLD:
+        train_rf_kfold(dataset_folder, network_name, 5, neighbors, use_vector, reduction_factor, augment, aug_granularity)
     elif operation == OPERATION_TEST_NETWORK_WITH_GENERATOR_AND_KFOLD:
         test_network_kfold(dataset_folder, network_name, models_folder, 5, augment, aug_granularity)
     elif operation == OPERATION_TEST_FULLSIZE_NETWORK:
@@ -730,6 +753,192 @@ def test_network_kfold(dataset_folder, network_name, models_folder, splits, augm
 
     return None
 
+def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, reduction_factor = 4, augment=False, aug_granularity=1):
+    # fix random seed for reproducibility
+    seed = 7
+    np.random.seed(seed)
+
+    if not augment:
+        dataset_padding = neighbors
+    else:
+        dataset_padding = neighbors*2
+
+    global dataset
+    global dataset_gt
+    dataset, dataset_gt, dataset_idxs = prepare_generator_dataset(dataset_folder, dataset_padding)
+
+    kfold = KFold(n_splits=splits, shuffle=True, random_state=seed)
+
+    kfold_splits = kfold.split(X=dataset_idxs)
+
+    store_dir = 'storage/rf-kfold/'
+
+    if vec:
+        center = int(np.floor(neighbors / 2))
+        paths = calculate_feature_paths(neighbors, center, reduction_factor)
+    else:
+        center = None
+        paths = None
+
+    for j, (train, test) in enumerate(kfold_splits):
+        print("=========================================")
+        print("===== K Fold Validation step => %d/5 =====" % (j + 1))
+        print("=========================================")
+
+        model = RandomForestClassifier(n_estimators=50, max_features=37, criterion='gini', min_samples_split=2,
+                                       min_samples_leaf=1, warm_start=True, verbose=0, n_jobs=-1)
+
+        train_idxs, validation_idxs = divide_indexes(dataset_idxs[train], val_percentage=0.15)
+
+        feature_groups = int(neighbors / 2) + 1
+
+        estimator_step_size = 50
+        n_estimators = 250
+
+        steps = int(n_estimators / estimator_step_size) + 1
+        batch_size = int(train_idxs.shape[0] / steps) + 1
+
+        if paths is not None:
+            feature_extraction_fn = get_item_features_vector
+            n_features = (paths.shape[0] + 1) * paths.shape[1]
+        else:
+            feature_extraction_fn = get_item_features
+            n_features = dataset.shape[1] * feature_groups
+
+        print('Starting training phase...')
+
+        print('Train progress: ', end='')
+        if False:
+
+            for i in range(steps):
+                print('{0}/{1} - '.format(i + 1, steps), end='')
+                # self.progress_bar(steps, i + 1, 'Train', stdscr)
+                start = (i) * batch_size
+                end = (i + 1) * batch_size
+                end = end if end < train_idxs.shape[0] else train_idxs.shape[0]
+
+                X_preprocessed_train_bag = np.zeros(shape=(end - start, n_features),
+                                                    dtype=np.float32)
+                Y_preprocessed_train_bag = np.zeros(shape=(end - start), dtype=np.uint8)
+                pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+                X_preprocessed_train_bag = np.array(
+                    pool.map(
+                        partial(feature_extraction_fn, feature_groups=feature_groups,
+                                neighbors=neighbors,
+                                paths=paths, center=center), train_idxs[start:end, :]))
+                Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, train_idxs[start:end, :]))
+                pool.close()
+                pool.join()
+
+                model.fit(X_preprocessed_train_bag, Y_preprocessed_train_bag)
+                X_preprocessed_train_bag = None
+                Y_preprocessed_train_bag = None
+                gc.collect()
+
+                # print('Storing model...')
+                joblib.dump(model, join(store_dir, str(j + 1) + '_' + rf_name + '-{step:03d}'.format(step=i) + '.pkl'))
+
+                model = None
+                gc.collect()
+
+                if i + 1 != steps:
+                    if i + 1 != steps - 1:
+                        model = RandomForestClassifier(n_estimators=50, max_features=37, criterion='gini',
+                                                       min_samples_split=2, min_samples_leaf=1, warm_start=True, verbose=0,
+                                                       n_jobs=-1)
+                        # self.model.set_params(n_estimators=self.model.n_estimators + estimator_step_size)
+                    else:
+                        estimators_left = int((train_idxs.shape[0] - end) / batch_size) + 1
+                        model = RandomForestClassifier(n_estimators=50, max_features=37, criterion='gini',
+                                                       min_samples_split=2, min_samples_leaf=1, warm_start=True, verbose=0,
+                                                       n_jobs=-1)
+                        model.set_params(n_estimators=estimators_left)
+
+        print('Finished!\n')
+
+        print('Starting validation phase...')
+
+        val_batch_size = int(validation_idxs.shape[0] / steps) + 1
+
+        random_trees_files = [f for f in listdir(store_dir) if isfile(join(store_dir, f)) and f.startswith(str(j+1) + '_') and f.endswith('.pkl')]
+        random_trees_files = natsorted(random_trees_files, key=lambda y: y.lower())
+
+        values_votes = np.zeros(shape=(validation_idxs.shape[0], 2), dtype=np.float32)
+        expected_val = np.zeros(shape=(validation_idxs.shape[0],), dtype=np.uint8)
+
+        print('Validation progress: ', end='')
+
+        for i in range(steps):
+            print('{0}/{1} - '.format(i + 1, steps), end='')
+            start = (i) * val_batch_size
+            end = (i + 1) * val_batch_size
+            end = end if end < validation_idxs.shape[0] else validation_idxs.shape[0]
+
+            X_partial_preprocessed_val_bag = np.zeros(shape=(end - start, n_features), dtype=np.float32)
+            # expected_val[start:end] = np.zeros(shape=(end - start), dtype=np.uint8)
+            pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+            X_partial_preprocessed_val_bag = np.array(
+                pool.map(
+                    partial(feature_extraction_fn, feature_groups=feature_groups,
+                            neighbors=neighbors, paths=paths, center=center), validation_idxs[start:end, :]))
+            expected_val[start:end] = np.array(pool.map(get_item_gt, validation_idxs[start:end, :]))
+            pool.close()
+            pool.join()
+
+            for file_i, rf_filename in enumerate(random_trees_files):
+                rf_full_filename = join(store_dir, rf_filename)
+
+                model = joblib.load(rf_full_filename)
+
+                if file_i == 0:
+                    batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_val_bag),
+                                              model.n_estimators)
+                else:
+                    batch_votes = np.add(batch_votes,
+                                         np.multiply(model.predict_proba(X_partial_preprocessed_val_bag),
+                                                     model.n_estimators))
+
+                model = None
+                gc.collect()
+
+            values_votes[start:end] = batch_votes
+
+        print('Finished!')
+
+        predicted_val = np.divide(values_votes, final_estimators)
+        X_partial_preprocessed_val_bag = None
+        batch_votes = None
+        values_votes = None
+        gc.collect()
+        predicted_val = np.argmax(predicted_val, axis=1)
+
+        print('Calculating reports and metrics...')
+
+        val_acc = accuracy_score(expected_val, predicted_val)
+        print('Val score: {val_acc:.4f}'.format(val_acc=val_acc))
+
+        print('Storing value accuracy...')
+        metrics_filename = join(store_dir, str(j+1) + '_' + rf_name + '-score_{val_acc:.4f}'.format(val_acc=val_acc) + '.txt')
+
+        cm = plot_confusion_matrix(expected_val, predicted_val, np.array(['No Forest', 'Forest']), plot=False)
+
+        with open(metrics_filename, 'w') as output:
+            output.write(str(cm))
+
+        class_report = classification_report(expected_val, predicted_val,
+                                             target_names=np.array(['no forest', 'forest']))
+
+        print(class_report)
+
+        with open(metrics_filename, 'a') as output:
+            output.write('\n\n' + str(class_report))
+
+        confmat_file = join(store_dir, str(j+1) + '_' + rf_name + '.conf_mat.npz')
+
+        print('Storing confusion matrix...')
+        if not exists(confmat_file):
+            np.savez_compressed(confmat_file, cm=cm)
+
 
 def get_padding(layers, ws=None):
     ws = ws if ws is not None else 1
@@ -904,6 +1113,51 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name):
 
         real_fnf_handler.src_Z = fnf_error_mask
         real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_vs_real_error.tif')
+
+
+def path_values(paths, path_i, center, traslation_x, traslation_y):
+    for i in range(1, center + 1):
+        r = np.around(np.around((i * traslation_x) + center, decimals=1))
+        h = np.around(np.around((i * traslation_y) + center, decimals=1))
+        paths[path_i, i - 1] = [r, h]
+
+
+def calculate_feature_paths(neighbors, center, step):
+    paths = np.zeros(shape=(int(center * 2 * 4 / step), center, 2), dtype=np.int8)
+
+    # top of the matrix
+    for path_i, h in enumerate(range(-1 * center, center, step)):
+        v = -1 * center
+        traslation_x = h / center
+        traslation_y = v / center
+        path_values(paths, path_i, center, traslation_x, traslation_y)
+
+    # right of the matrix
+    path_current = path_i + 1
+    for path_i, v in enumerate(range(-1 * center, center, step)):
+        h = 1 * center
+        traslation_x = h / center
+        traslation_y = v / center
+        path_values(paths, path_current + path_i, center, traslation_x, traslation_y)
+
+    # bottom of the matrix
+    path_current += path_i + 1
+    for path_i, h in enumerate(range(center, -1 * center, -1 * step)):
+        v = 1 * center
+        traslation_x = h / center
+        traslation_y = v / center
+        path_values(paths, path_current + path_i, center, traslation_x, traslation_y)
+
+    # right of the matrix
+    path_current += path_i + 1
+    for path_i, v in enumerate(range(center, -1 * center, -1 * step)):
+        h = -1 * center
+        traslation_x = h / center
+        traslation_y = v / center
+        path_values(paths, path_current + path_i, center, traslation_x, traslation_y)
+
+    paths = np.apply_along_axis(np.append, 1, paths, center)
+    return paths
 
 
 def test_load_fullsize(model_filename, weights_filename, dataset_folder):
@@ -1287,6 +1541,50 @@ def simple_progress_bar(current_value, total):
     i = int(percentual // (100 / increments))
     text = "\r[{0: <{1}}] {2}%".format('=' * i, increments, "{0:.2f}".format(percentual))
     print(text, end="\n" if percentual == 100 else "")
+
+def get_item_features(item, feature_groups=None, neighbors=None, paths=None, center=None):
+    # Paths and center are not used in this function para we keep the parameter to maintain the same function definition
+    # as get_item_features_vector and avoid an if statement being executed billion of times
+
+    data_patch = dataset[item[0], :, item[1]: item[1] + neighbors, item[2]: item[2] + neighbors]
+
+    np_feat = np.zeros(shape=(data_patch.shape[0] * feature_groups,), dtype=np.float32)
+    patch_sliced = data_patch
+    for i in range(feature_groups - 1):
+        top_row = patch_sliced[:, 0, :]
+        bottom_row = patch_sliced[:, -1, :]
+
+        patch_sliced = patch_sliced[:, 1:-1, :]
+        left_col = patch_sliced[:, :, 0]
+        right_col = patch_sliced[:, :, -1]
+
+        patch_sliced = patch_sliced[:, :, 1:-1]
+
+        border_values = np.concatenate((left_col, right_col, top_row, bottom_row), axis=1)
+        np_feat[(i * data_patch.shape[0]):((i + 1) * data_patch.shape[0])] = np.mean(border_values, axis=1)
+
+    np_feat[(-1 * data_patch.shape[0]):] = np.reshape(patch_sliced, data_patch.shape[0])
+
+    return np_feat
+
+
+def get_item_gt(item):
+    return dataset_gt[item[0], item[1], item[2]]
+
+
+def get_item_features_vector(item, feature_groups=None, neighbors=None, paths=None, center=None):
+    # Feature groups are not used in this function para we keep the parameter to maintain the same function definition
+    # as get_item_features and avoid an if statement being executed billion of times
+
+    data_patch = dataset[item[0], :, item[1]: item[1] + neighbors, item[2]: item[2] + neighbors]
+    data_feat = np.array([np.mean([data_patch[:, g[0], g[1]] for g in f], axis=0) for f in paths], dtype=np.float32)
+
+    data_center = data_patch[:, center, center]
+    data_center = data_center.reshape(1, data_center.shape[0])
+    data_feat = np.append(data_feat, data_center, axis=0)
+
+    data_feat = data_feat.reshape(data_feat.shape[0] * data_feat.shape[1])
+    return data_feat
 
 
 main(sys.argv[1:])
