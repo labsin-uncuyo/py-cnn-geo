@@ -807,6 +807,8 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
 
         print('Starting training phase...')
 
+        final_estimators = model.n_estimators
+
         print('Train progress: ', end='')
 
         for i in range(steps):
@@ -852,6 +854,7 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
                                                    min_samples_split=2, min_samples_leaf=1, warm_start=True, verbose=0,
                                                    n_jobs=-1)
                     model.set_params(n_estimators=estimators_left)
+                    final_estimators += model.n_estimators
 
         print('Finished!\n')
 
