@@ -23,6 +23,7 @@ OPERATION_CREATE_RF_WITH_GENERATOR_AND_KFOLD = 33
 OPERATION_TEST = 50
 OPERATION_PLAY = 99
 
+
 def main(argv):
     """
     Main function which shows the usage, retrieves the command line parameters and invokes the required functions to do
@@ -51,11 +52,11 @@ def main(argv):
     aug_granularity = 1
 
     try:
-        opts, args = getopt.getopt(argv, "hc:n:t:vl:d:fe:r:o:g:pi:z:", ["help", "create_rf=", "neighbors=", "model_name=",
-                                                                 "use_vector", "reduction_factor", "storage_directory=",
-                                                                 "finish_earlier", "tif_sample=", "tif_real",
-                                                                 "result_name=", "augment=", "play", "model_directory",
-                                                                 "test="])
+        opts, args = getopt.getopt(argv, "hc:a:n:t:vl:d:fe:r:o:g:pi:z:",
+                                   ["help", "create_rf=", "create_rf_gen_kfold=", "neighbors=", "model_name=",
+                                    "use_vector", "reduction_factor", "storage_directory=", "finish_earlier",
+                                    "tif_sample=", "tif_real", "result_name=", "augment=", "play", "model_directory",
+                                    "test="])
     except getopt.GetoptError:
         print('random_forest_manager.py -h')
         sys.exit(2)
@@ -173,6 +174,7 @@ def prepare_generator_dataset(dataset_folder, padding):
 
     return bigdata, bigdata_gt, bigdata_idx_mix
 
+
 def create_random_forest(dataset_folder, neighbors, store_directory, model_name, finish_earlier):
     print('Starting operation of random forest creation')
 
@@ -199,24 +201,27 @@ def create_random_forest(dataset_folder, neighbors, store_directory, model_name,
         model_n = 'rf_model'
 
     estimator_step_size = 100
-    batch_size = (NetworkParameters.BATCH_SIZE*2)
+    batch_size = (NetworkParameters.BATCH_SIZE * 2)
 
     steps = int(X_train.shape[0] / batch_size) + 1
     estimator_steps = int(steps / estimator_step_size) + 1
 
-    clf = RandomForestClassifier(n_estimators=estimator_step_size, max_features=int(dataset.shape[1]/3), warm_start=True, verbose=1, n_jobs=-1)
+    clf = RandomForestClassifier(n_estimators=estimator_step_size, max_features=int(dataset.shape[1] / 3),
+                                 warm_start=True, verbose=1, n_jobs=-1)
     for i in range(estimator_steps):
-        print('Step %s of %s' % (str(i+1), str(estimator_steps)))
+        print('Step %s of %s' % (str(i + 1), str(estimator_steps)))
         print('Fitting %s estimators' % str(clf.n_estimators))
         start = (i * estimator_step_size) * batch_size
         end = ((i + 1) * estimator_step_size) * batch_size
         end = end if end < X_train.shape[0] else X_train.shape[0]
 
-        X_preprocessed_train_bag = np.zeros(shape=(end-start, dataset.shape[1]*feature_groups), dtype=np.float32)
-        Y_preprocessed_train_bag = np.zeros(shape=(end-start), dtype=np.uint8)
+        X_preprocessed_train_bag = np.zeros(shape=(end - start, dataset.shape[1] * feature_groups), dtype=np.float32)
+        Y_preprocessed_train_bag = np.zeros(shape=(end - start), dtype=np.uint8)
         pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-        X_preprocessed_train_bag = np.array(pool.map(partial(get_item_features, feature_groups=feature_groups, neighbors=neighbors), X_train[start:end,:]))
-        Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, X_train[start:end,:]))
+        X_preprocessed_train_bag = np.array(
+            pool.map(partial(get_item_features, feature_groups=feature_groups, neighbors=neighbors),
+                     X_train[start:end, :]))
+        Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, X_train[start:end, :]))
         pool.close()
         pool.join()
 
@@ -227,8 +232,8 @@ def create_random_forest(dataset_folder, neighbors, store_directory, model_name,
         if finish_earlier and clf.n_estimators == 1000:
             break
 
-        if i+1 != estimator_steps:
-            if i+1 != estimator_steps-1:
+        if i + 1 != estimator_steps:
+            if i + 1 != estimator_steps - 1:
                 clf.set_params(n_estimators=clf.n_estimators + estimator_step_size)
             else:
                 estimators_left = int((X_train.shape[0] - end) / batch_size) + 1
@@ -247,13 +252,13 @@ def create_random_forest(dataset_folder, neighbors, store_directory, model_name,
     Y_preprocessed_test_bag = np.array(pool.map(get_item_gt, X_test))
     pool.close()
     pool.join()
-    #for item_i, test_item in enumerate(X_test):
+    # for item_i, test_item in enumerate(X_test):
     #    X_preprocessed_test_bag[item_i] = get_patch_features(
     #        dataset[test_item[0], :, test_item[1]: test_item[1] + neighbors, test_item[2]: test_item[2] + neighbors],
     #        feature_groups)
     #    Y_preprocessed_test_bag[item_i] = dataset_gt[test_item[0], test_item[1], test_item[2]]
 
-    #print(clf.score(X_preprocessed_test_bag, Y_preprocessed_test_bag))
+    # print(clf.score(X_preprocessed_test_bag, Y_preprocessed_test_bag))
 
     predict_out = clf.predict(X_preprocessed_test_bag)
 
@@ -271,7 +276,9 @@ def create_random_forest(dataset_folder, neighbors, store_directory, model_name,
 
     print('All done!!!')
 
-def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, reduction_factor = 4, augment=False, aug_granularity=1):
+
+def train_rf_kfold(dataset_folder, rf_name, splits, neighbors=9, vec=False, reduction_factor=4, augment=False,
+                   aug_granularity=1):
     # fix random seed for reproducibility
     seed = 7
     np.random.seed(seed)
@@ -279,7 +286,7 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
     if not augment:
         dataset_padding = neighbors
     else:
-        dataset_padding = neighbors*2
+        dataset_padding = neighbors * 2
 
     global dataset
     global dataset_gt
@@ -372,7 +379,8 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
 
         val_batch_size = int(test.shape[0] / steps) + 1
 
-        random_trees_files = [f for f in listdir(store_dir) if isfile(join(store_dir, f)) and f.startswith(str(j+1) + '_') and f.endswith('.pkl')]
+        random_trees_files = [f for f in listdir(store_dir) if
+                              isfile(join(store_dir, f)) and f.startswith(str(j + 1) + '_') and f.endswith('.pkl')]
         random_trees_files = natsorted(random_trees_files, key=lambda y: y.lower())
 
         values_votes = np.zeros(shape=(test.shape[0], 2), dtype=np.float32)
@@ -430,7 +438,8 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
         print('Val score: {val_acc:.4f}'.format(val_acc=val_acc))
 
         print('Storing value accuracy...')
-        metrics_filename = join(store_dir, str(j+1) + '_' + rf_name + '-score_{val_acc:.4f}'.format(val_acc=val_acc) + '.txt')
+        metrics_filename = join(store_dir,
+                                str(j + 1) + '_' + rf_name + '-score_{val_acc:.4f}'.format(val_acc=val_acc) + '.txt')
 
         cm = plot_confusion_matrix(expected_val, predicted_val, np.array(['No Forest', 'Forest']), plot=False)
 
@@ -445,14 +454,15 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
         with open(metrics_filename, 'a') as output:
             output.write('\n\n' + str(class_report))
 
-        confmat_file = join(store_dir, str(j+1) + '_' + rf_name + '.conf_mat.npz')
+        confmat_file = join(store_dir, str(j + 1) + '_' + rf_name + '.conf_mat.npz')
 
         print('Storing confusion matrix...')
         if not exists(confmat_file):
             np.savez_compressed(confmat_file, cm=cm)
 
 
-def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, vec, reduction_factor):
+def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, vec,
+         reduction_factor):
     if result_name != '':
         store_with_name = result_name
     else:
@@ -539,7 +549,7 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
         X_partial_preprocessed_test_bag = np.zeros(shape=(end - start, n_features), dtype=np.float32)
         pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
         X_partial_preprocessed_test_bag = np.array(
-            pool.map(partial(feature_extraction_fn, feature_groups=feature_groups,neighbors=neighbors, paths=paths,
+            pool.map(partial(feature_extraction_fn, feature_groups=feature_groups, neighbors=neighbors, paths=paths,
                              center=center), batch[:]))
         pool.close()
         pool.join()
@@ -553,7 +563,7 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
                                      np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
                                                  model.n_estimators))
 
-            #gc.collect()
+            # gc.collect()
 
         values_votes[start:end] = batch_votes
 
@@ -737,7 +747,8 @@ def get_item_features(item, feature_groups=None, neighbors=None, paths=None, cen
 
     data_patch = get_item_patch(item, neighbors)
 
-    return get_patch_features(data_patch, feature_groups=feature_groups, neighbors=neighbors, paths=paths, center=center)
+    return get_patch_features(data_patch, feature_groups=feature_groups, neighbors=neighbors, paths=paths,
+                              center=center)
 
 
 def get_item_gt(item):
@@ -761,20 +772,19 @@ def get_item_features_vector(item, feature_groups=None, neighbors=None, paths=No
 
     data_patch = get_item_patch(item, neighbors)
 
-    return get_patch_features_vector(data_patch, feature_groups=feature_groups, neighbors=neighbors, paths=paths, center=center)
+    return get_patch_features_vector(data_patch, feature_groups=feature_groups, neighbors=neighbors, paths=paths,
+                                     center=center)
 
 
 def get_batch(idx, batch_size, total_samples, patch_size):
-
     patches_batch = []
     left_lim = idx * batch_size
     right_lim = (idx + 1) * batch_size if (idx + 1) * batch_size <= total_samples else total_samples
 
-
     y_start = int(left_lim / RasterParams.FNF_MAX_Y)
     y_end = int(right_lim / RasterParams.FNF_MAX_Y)
 
-    for y in range(y_start, y_end+1):
+    for y in range(y_start, y_end + 1):
         if y_start == y_end:
             x_start = left_lim % RasterParams.FNF_MAX_Y
             x_end = right_lim % RasterParams.FNF_MAX_Y
@@ -793,7 +803,7 @@ def get_batch(idx, batch_size, total_samples, patch_size):
 
             patches_batch.append(patch)
 
-    #patches_batch = np.array(patches_batch).reshape(len(patches_batch), self.patch_size, self.patch_size, self.dataset.shape[0])
+    # patches_batch = np.array(patches_batch).reshape(len(patches_batch), self.patch_size, self.patch_size, self.dataset.shape[0])
     patches_batch = np.array(patches_batch)
     patches_batch = patches_batch.astype('float32')
     return patches_batch
@@ -860,5 +870,6 @@ def plot_confusion_matrix(y_true, y_pred, classes,
         return ax, cm
     else:
         return cm
+
 
 main(sys.argv[1:])
