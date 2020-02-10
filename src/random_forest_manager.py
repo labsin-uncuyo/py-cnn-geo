@@ -386,13 +386,15 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors=9, vec=False, redu
         values_votes = np.zeros(shape=(test.shape[0], 2), dtype=np.float32)
         expected_val = np.zeros(shape=(test.shape[0],), dtype=np.uint8)
 
+        test_idx = dataset_idxs[test]
+
         print('Validation progress: ', end='')
 
         for i in range(steps):
             print('{0}/{1} - '.format(i + 1, steps), end='')
             start = (i) * val_batch_size
             end = (i + 1) * val_batch_size
-            end = end if end < test.shape[0] else test.shape[0]
+            end = end if end < test_idx.shape[0] else test_idx.shape[0]
 
             X_partial_preprocessed_val_bag = np.zeros(shape=(end - start, n_features), dtype=np.float32)
             # expected_val[start:end] = np.zeros(shape=(end - start), dtype=np.uint8)
@@ -400,8 +402,8 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors=9, vec=False, redu
             X_partial_preprocessed_val_bag = np.array(
                 pool.map(
                     partial(feature_extraction_fn, feature_groups=feature_groups,
-                            neighbors=neighbors, paths=paths, center=center), test[start:end, :]))
-            expected_val[start:end] = np.array(pool.map(get_item_gt, test[start:end, :]))
+                            neighbors=neighbors, paths=paths, center=center), test_idx[start:end, :]))
+            expected_val[start:end] = np.array(pool.map(get_item_gt, test_idx[start:end, :]))
             pool.close()
             pool.join()
 
