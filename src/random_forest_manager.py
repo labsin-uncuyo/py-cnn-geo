@@ -106,7 +106,7 @@ def main(argv):
     elif operation == OPERATION_CREATE_RF_WITH_GENERATOR_AND_KFOLD:
         train_rf_kfold(dataset_folder, model_name, 5, neighbors, use_vector, reduction_factor, augment, aug_granularity)
     elif operation == OPERATION_TEST:
-        test(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, use_vector,
+        test2(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, use_vector,
              reduction_factor)
     elif operation == OPERATION_PLAY:
         play()
@@ -320,7 +320,7 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors=9, vec=False, redu
         estimator_step_size = 50
         n_estimators = 250
 
-        steps = int(n_estimators / estimator_step_size) + 1
+        steps = int(n_estimators / estimator_step_size)
         batch_size = int(train_idxs.shape[0] / steps) + 1
 
         if paths is not None:
@@ -475,7 +475,7 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
     else:
         model_dir = 'storage'
 
-    model_files = [f for f in listdir(model_dir) if f == model_name + '.pkl']
+    model_files = [f for f in listdir(model_dir) if f.startswith(model_name) and f.endswith('.pkl')]
     model_files = natsorted(model_files, key=lambda y: y.lower())
 
     print("Loading models...")
@@ -556,18 +556,19 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
         pool.close()
         pool.join()
 
-        for model_i, model in enumerate(models):
-            if model_i == 0:
-                batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
-                                          model.n_estimators)
-            else:
-                batch_votes = np.add(batch_votes,
-                                     np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
-                                                 model.n_estimators))
+        if False:
+            for model_i, model in enumerate(models):
+                if model_i == 0:
+                    batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                              model.n_estimators)
+                else:
+                    batch_votes = np.add(batch_votes,
+                                         np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                                     model.n_estimators))
 
-            # gc.collect()
+                # gc.collect()
 
-        values_votes[start:end] = batch_votes
+            values_votes[start:end] = batch_votes
 
     predicted_test = np.divide(values_votes, n_estimators)
     X_partial_preprocessed_test_bag = None
@@ -873,5 +874,211 @@ def plot_confusion_matrix(y_true, y_pred, classes,
     else:
         return cm
 
+
+def test2(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, vec,
+         reduction_factor):
+    if result_name is not '':
+        store_with_name = result_name
+    else:
+        store_with_name = model_name
+
+    if model_directory is not '':
+        model_dir = model_directory
+    else:
+        model_dir = 'storage'
+
+    model_files = [f for f in listdir(model_dir) if f.startswith(model_name) and f.endswith('.pkl')]
+    model_files = natsorted(model_files, key=lambda y: y.lower())
+
+    print("Loading models...")
+
+    assert (len(model_files) >= 1)
+    models = []
+    for model_file in model_files:
+        models.append(joblib.load(join(model_dir, model_file)))
+
+    print("Models loaded from disk!")
+
+    # evaluate loaded model on test data
+
+    dataset_padding = neighbors
+
+    if vec:
+        center = int(np.floor(neighbors / 2))
+        paths = calculate_feature_paths(center, reduction_factor)
+    else:
+        center = None
+        paths = None
+
+    feature_groups = int(neighbors / 2) + 1
+
+    global dataset
+    item_getter = itemgetter('bigdata')
+    with np.load(dataset_file) as df:
+        dataset = item_getter(df)
+
+    # bigdata_clip = bigdata[:, :900, :900]
+    dataset = dataset[:, :RasterParams.FNF_MAX_X, :RasterParams.FNF_MAX_Y]
+
+    if paths is not None:
+        feature_extraction_fn = get_patch_features_vector
+        n_features = (paths.shape[0] + 1) * paths.shape[1]
+    else:
+        feature_extraction_fn = get_patch_features
+        n_features = dataset.shape[0] * feature_groups
+
+    half_padding = int(dataset_padding / 2)
+
+    dataset = np.pad(dataset, [(0, 0), (half_padding, half_padding), (half_padding, half_padding)],
+                     mode='constant')
+
+    fnf_handler = GTiffHandler()
+    # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
+    fnf_handler.readFile(tif_sample)
+
+    estimator_step_size = 50
+    n_estimators = estimator_step_size * len(models)
+
+    n_items_dataset = (RasterParams.FNF_MAX_X * RasterParams.FNF_MAX_Y)
+
+    batch_size = NetworkParameters.BATCH_SIZE
+    steps = int(n_items_dataset / batch_size) + 1
+
+    predicted_test = np.zeros(shape=(n_items_dataset,), dtype=np.uint8)
+
+    print('Starting testing phase...')
+    start = time.time()
+
+    values_votes = np.zeros(shape=(n_items_dataset, 2), dtype=np.float32)
+
+    batches = []
+
+    print('Test progress: ', end='')
+    for i in range(steps):
+        print('{0}/{1} - '.format(i + 1, steps), end='')
+        start = (i) * batch_size
+        end = (i + 1) * batch_size
+        end = end if end < n_items_dataset else n_items_dataset
+
+        batches.append(get_batch(start, batch_size, n_items_dataset, neighbors))
+
+    total_batches = len(batches)
+    for batch_i, batch in enumerate(batches):
+        print('{0}/{1} - '.format(batch_i + 1, total_batches), end='')
+        X_partial_preprocessed_test_bag = np.zeros(shape=(end - start, n_features), dtype=np.float32)
+        pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+        X_partial_preprocessed_test_bag = np.array(
+            pool.map(partial(feature_extraction_fn, feature_groups=feature_groups, neighbors=neighbors, paths=paths,
+                             center=center), batch[:]))
+        pool.close()
+        pool.join()
+
+        if False:
+            for model_i, model in enumerate(models):
+                if model_i == 0:
+                    batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                              model.n_estimators)
+                else:
+                    batch_votes = np.add(batch_votes,
+                                         np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                                     model.n_estimators))
+
+                # gc.collect()
+
+            values_votes[start:end] = batch_votes
+
+    predicted_test = np.divide(values_votes, n_estimators)
+    X_partial_preprocessed_test_bag = None
+    batch_votes = None
+    values_votes = None
+    gc.collect()
+    predicted_test = np.argmax(predicted_test, axis=1)
+
+    predict_mask = predicted_test.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
+    end = time.time()
+    print(end - start)
+
+    bigdata_gt = None
+    item_getter = itemgetter('bigdata_gt')
+    with np.load(dataset_file) as df:
+        bigdata_gt = item_getter(df)
+
+    bigdata_gt_clip = bigdata_gt
+
+    error_mask = np.logical_xor(predict_mask, bigdata_gt_clip)
+
+    temp_pred = predict_mask.reshape(predict_mask.shape[0] * predict_mask.shape[1])
+    temp_gt = bigdata_gt_clip.reshape(bigdata_gt_clip.shape[0] * bigdata_gt_clip.shape[1])
+
+    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
+
+    plt.savefig('storage/' + store_with_name + '_conf_plot.pdf', bbox_inches='tight')
+
+    print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
+
+    unique, counts = np.unique(error_mask, return_counts=True)
+    print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
+
+    np.savez_compressed('storage/' + store_with_name + 'confusion_matrix.npz', cm=cm)
+
+    plt.clf()
+
+    fnf_handler.src_Z = predict_mask
+    fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction.tif')
+
+    fnf_handler.src_Z = error_mask
+    fnf_handler.writeNewFile('storage/test_' + store_with_name + '_error.tif')
+
+    fnf_handler.closeFile()
+
+    if tif_real != '':
+        real_fnf_handler = GTiffHandler()
+        real_fnf_handler.readFile(tif_real)
+
+        real_mask = np.array(real_fnf_handler.src_Z)
+
+        unique, counts = np.unique(real_mask, return_counts=True)
+        if (unique.shape[0] > 2):
+            real_mask[real_mask > 1] = 0
+
+        predict_mask_portion = predict_mask[:real_mask.shape[0], :real_mask.shape[1]]
+        bigdata_gt_portion = bigdata_gt_clip[:real_mask.shape[0], :real_mask.shape[1]]
+
+        our_error_mask = np.logical_xor(predict_mask_portion, real_mask)
+        fnf_error_mask = np.logical_xor(bigdata_gt_portion, real_mask)
+
+        temp_real = real_mask.reshape(real_mask.shape[0] * real_mask.shape[1])
+        temp_pred = predict_mask_portion.reshape(real_mask.shape[0] * real_mask.shape[1])
+        temp_gt = bigdata_gt_portion.reshape(real_mask.shape[0] * real_mask.shape[1])
+
+        ax, cm = plot_confusion_matrix(temp_real, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
+        plt.savefig('storage/' + store_with_name + '_conf_plot_real_vs_pred.pdf', bbox_inches='tight')
+        print(classification_report(temp_real, temp_pred, target_names=np.array(['no forest', 'forest'])))
+        np.savez_compressed('storage/' + store_with_name + 'confusion_matrix_real_vs_pred.npz', cm=cm)
+        plt.clf()
+
+        ax, cm = plot_confusion_matrix(temp_real, temp_gt, np.array(['No Forest', 'Forest']), plot=True)
+        plt.savefig('storage/' + store_with_name + '_conf_plot_real_vs_gt.pdf', bbox_inches='tight')
+        print(classification_report(temp_real, temp_gt, target_names=np.array(['no forest', 'forest'])))
+        np.savez_compressed('storage/' + store_with_name + 'confusion_matrix_real_vs_gt.npz', cm=cm)
+        plt.clf()
+
+        unique, counts = np.unique(our_error_mask, return_counts=True)
+        print("Test our accuracy ", counts[0] / (counts[0] + counts[1]))
+
+        unique, counts = np.unique(fnf_error_mask, return_counts=True)
+        print("Test gt accuracy ", counts[0] / (counts[0] + counts[1]))
+
+        real_fnf_handler.src_Z = predict_mask_portion
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction_portion.tif')
+
+        real_fnf_handler.src_Z = our_error_mask
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction_vs_real_error.tif')
+
+        real_fnf_handler.src_Z = bigdata_gt_portion
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_portion.tif')
+
+        real_fnf_handler.src_Z = fnf_error_mask
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_vs_real_error.tif')
 
 main(sys.argv[1:])
