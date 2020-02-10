@@ -329,41 +329,42 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors = 9, vec = False, 
 
         print('Train progress: ', end='')
 
-        for i in range(steps):
-            print('{0}/{1} - '.format(i + 1, steps), end='')
-            # self.progress_bar(steps, i + 1, 'Train', stdscr)
-            start = (i) * batch_size
-            end = (i + 1) * batch_size
-            end = end if end < train_idxs.shape[0] else train_idxs.shape[0]
+        if False:
+            for i in range(steps):
+                print('{0}/{1} - '.format(i + 1, steps), end='')
+                # self.progress_bar(steps, i + 1, 'Train', stdscr)
+                start = (i) * batch_size
+                end = (i + 1) * batch_size
+                end = end if end < train_idxs.shape[0] else train_idxs.shape[0]
 
-            X_preprocessed_train_bag = np.zeros(shape=(end - start, n_features),
-                                                dtype=np.float32)
-            Y_preprocessed_train_bag = np.zeros(shape=(end - start), dtype=np.uint8)
-            pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-            X_preprocessed_train_bag = np.array(
-                pool.map(
-                    partial(feature_extraction_fn, feature_groups=feature_groups,
-                            neighbors=neighbors,
-                            paths=paths, center=center), train_idxs[start:end, :]))
-            Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, train_idxs[start:end, :]))
-            pool.close()
-            pool.join()
+                X_preprocessed_train_bag = np.zeros(shape=(end - start, n_features),
+                                                    dtype=np.float32)
+                Y_preprocessed_train_bag = np.zeros(shape=(end - start), dtype=np.uint8)
+                pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+                X_preprocessed_train_bag = np.array(
+                    pool.map(
+                        partial(feature_extraction_fn, feature_groups=feature_groups,
+                                neighbors=neighbors,
+                                paths=paths, center=center), train_idxs[start:end, :]))
+                Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, train_idxs[start:end, :]))
+                pool.close()
+                pool.join()
 
-            model.fit(X_preprocessed_train_bag, Y_preprocessed_train_bag)
-            X_preprocessed_train_bag = None
-            Y_preprocessed_train_bag = None
-            gc.collect()
+                model.fit(X_preprocessed_train_bag, Y_preprocessed_train_bag)
+                X_preprocessed_train_bag = None
+                Y_preprocessed_train_bag = None
+                gc.collect()
 
-            # print('Storing model...')
-            joblib.dump(model, join(store_dir, str(j + 1) + '_' + rf_name + '-{step:03d}'.format(step=i) + '.pkl'))
+                # print('Storing model...')
+                joblib.dump(model, join(store_dir, str(j + 1) + '_' + rf_name + '-{step:03d}'.format(step=i) + '.pkl'))
 
-            model = None
-            gc.collect()
+                model = None
+                gc.collect()
 
-            if i + 1 != steps:
-                model = RandomForestClassifier(n_estimators=50, max_features=37, criterion='gini',
-                                               min_samples_split=2, min_samples_leaf=1, warm_start=True, verbose=0,
-                                               n_jobs=-1)
+                if i + 1 != steps:
+                    model = RandomForestClassifier(n_estimators=50, max_features=37, criterion='gini',
+                                                   min_samples_split=2, min_samples_leaf=1, warm_start=True, verbose=0,
+                                                   n_jobs=-1)
 
         print('Finished!\n')
 
