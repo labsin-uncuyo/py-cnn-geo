@@ -947,7 +947,7 @@ def test2(model_name, dataset_file, tif_sample, tif_real, result_name, model_dir
     predicted_test = np.zeros(shape=(n_items_dataset,), dtype=np.uint8)
 
     print('Starting testing phase...')
-    start = time.time()
+    start_time = time.time()
 
     values_votes = np.zeros(shape=(n_items_dataset, 2), dtype=np.float32)
 
@@ -960,11 +960,8 @@ def test2(model_name, dataset_file, tif_sample, tif_real, result_name, model_dir
         end = (i + 1) * batch_size
         end = end if end < n_items_dataset else n_items_dataset
 
-        batches.append(get_batch(start, batch_size, n_items_dataset, neighbors))
+        batch = get_batch(i, batch_size, n_items_dataset, neighbors)
 
-    total_batches = len(batches)
-    for batch_i, batch in enumerate(batches):
-        print('{0}/{1} - '.format(batch_i + 1, total_batches), end='')
         X_partial_preprocessed_test_bag = np.zeros(shape=(end - start, n_features), dtype=np.float32)
         pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
         X_partial_preprocessed_test_bag = np.array(
@@ -973,19 +970,18 @@ def test2(model_name, dataset_file, tif_sample, tif_real, result_name, model_dir
         pool.close()
         pool.join()
 
-        if False:
-            for model_i, model in enumerate(models):
-                if model_i == 0:
-                    batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
-                                              model.n_estimators)
-                else:
-                    batch_votes = np.add(batch_votes,
-                                         np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
-                                                     model.n_estimators))
+        for model_i, model in enumerate(models):
+            if model_i == 0:
+                batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                          model.n_estimators)
+            else:
+                batch_votes = np.add(batch_votes,
+                                     np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                                 model.n_estimators))
 
-                # gc.collect()
+            # gc.collect()
 
-            values_votes[start:end] = batch_votes
+        values_votes[start:end] = batch_votes
 
     predicted_test = np.divide(values_votes, n_estimators)
     X_partial_preprocessed_test_bag = None
@@ -995,8 +991,8 @@ def test2(model_name, dataset_file, tif_sample, tif_real, result_name, model_dir
     predicted_test = np.argmax(predicted_test, axis=1)
 
     predict_mask = predicted_test.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
-    end = time.time()
-    print(end - start)
+    end_time = time.time()
+    print(end_time - start_time)
 
     bigdata_gt = None
     item_getter = itemgetter('bigdata_gt')
