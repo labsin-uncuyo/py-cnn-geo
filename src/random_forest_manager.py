@@ -325,7 +325,7 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors=9, vec=False, redu
 
         if paths is not None:
             feature_extraction_fn = get_item_features_vector
-            n_features = (paths.shape[0] + 1) * paths.shape[1]
+            n_features = (paths.shape[0] + 1) * dataset.shape[1]
         else:
             feature_extraction_fn = get_item_features
             n_features = dataset.shape[1] * feature_groups
@@ -350,8 +350,7 @@ def train_rf_kfold(dataset_folder, rf_name, splits, neighbors=9, vec=False, redu
                 pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
                 X_preprocessed_train_bag = np.array(
                     pool.map(
-                        partial(feature_extraction_fn, feature_groups=feature_groups,
-                                neighbors=neighbors,
+                        partial(feature_extraction_fn, feature_groups=feature_groups, neighbors=neighbors,
                                 paths=paths, center=center), train_idxs[start:end, :]))
                 Y_preprocessed_train_bag = np.array(pool.map(get_item_gt, train_idxs[start:end, :]))
                 pool.close()
