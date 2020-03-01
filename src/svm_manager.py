@@ -440,7 +440,7 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
 
     X_partial_preprocessed_test_bag = None
     gc.collect()
-    predicted_test = np.argmax(predicted_test, axis=1)
+    #predicted_test = np.argmax(predicted_test, axis=1)
 
     predict_mask = predicted_test.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
     end_time = time.time()
