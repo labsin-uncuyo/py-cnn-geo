@@ -92,13 +92,12 @@ def main(argv):
         elif opt in ["-p", "--play"]:
             operation = OPERATION_PLAY
 
-    print('Working with dataset file %s' % dataset_folder)
     print('Using %s neighbors' % neighbors)
     if operation == OPERATION_CREATE_SVM_WITH_GENERATOR_AND_KFOLD:
+        print('Working with dataset file %s' % dataset_folder)
         train_svm_kfold(dataset_folder, model_name, 5, neighbors, use_vector, reduction_factor, augment, aug_granularity)
     elif operation == OPERATION_TEST:
-        pass
-        # test(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, use_vector, reduction_factor)
+        test(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, use_vector, reduction_factor)
     elif operation == OPERATION_PLAY:
         pass
         # play()
@@ -329,7 +328,7 @@ def train_svm_kfold(dataset_folder, svm_name, splits, neighbors=9, vec=False, re
         metrics_filename = join(store_dir,
                                 svm_name + '-score_{test_acc:.4f}'.format(test_acc=test_acc) + '.txt')
 
-        cm = print_confusion_matrix(expected_test, predicted_test, np.array(['No Forest', 'Forest']))
+        cm = plot_confusion_matrix(expected_test, predicted_test, np.array(['No Forest', 'Forest']), plot=False)
 
         with open(metrics_filename, 'w') as output:
             output.write(str(cm))
@@ -349,11 +348,195 @@ def train_svm_kfold(dataset_folder, svm_name, splits, neighbors=9, vec=False, re
             np.savez_compressed(confmat_file, cm=cm)
 
 
-def print_confusion_matrix(y_true, y_pred, classes,
-                           normalize=False,
-                           title=None):
+def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_directory, neighbors, vec,
+         reduction_factor):
+    if result_name != '':
+        store_with_name = result_name
+    else:
+        store_with_name = model_name
+
+    if model_directory is not '':
+        model_dir = model_directory
+    else:
+        model_dir = 'storage'
+
+    model_file = join(model_dir, model_name +'.pkl')
+
+    print("Loading model...")
+
+    model = joblib.load(model_file)
+
+    print("Models loaded from disk!")
+
+    # evaluate loaded model on test data
+
+    dataset_padding = neighbors
+
+    if vec:
+        center = int(np.floor(neighbors / 2))
+        paths = calculate_feature_paths(center, reduction_factor)
+    else:
+        center = None
+        paths = None
+
+    feature_groups = int(neighbors / 2) + 1
+
+    global dataset
+    item_getter = itemgetter('bigdata')
+    with np.load(dataset_file) as df:
+        dataset = item_getter(df)
+
+    # bigdata_clip = bigdata[:, :900, :900]
+    dataset = dataset[:, :RasterParams.FNF_MAX_X, :RasterParams.FNF_MAX_Y]
+
+    if paths is not None:
+        feature_extraction_fn = get_patch_features_vector
+        n_features = (paths.shape[0] + 1) * paths.shape[1]
+    else:
+        feature_extraction_fn = get_patch_features
+        n_features = dataset.shape[0] * feature_groups
+
+    half_padding = int(dataset_padding / 2)
+
+    dataset = np.pad(dataset, [(0, 0), (half_padding, half_padding), (half_padding, half_padding)],
+                     mode='constant')
+
+    fnf_handler = GTiffHandler()
+    # fnf_handler.readFile("storage/test_fullsize_train_pred.tif")
+    fnf_handler.readFile(tif_sample)
+
+    estimator_step_size = 500
+    batch_size = (NetworkParameters.BATCH_SIZE * 2)
+
+    n_items_dataset = (RasterParams.FNF_MAX_X * RasterParams.FNF_MAX_Y)
+    steps = int(n_items_dataset / batch_size) + 1
+    estimator_steps = int(steps / estimator_step_size) + 1
+
+    predicted_test = np.zeros(shape=(n_items_dataset,), dtype=np.uint8)
+
+    print('Starting testing phase...')
+    start_time = time.time()
+
+    #predicted_test = np.zeros(shape=(n_items_dataset, 2), dtype=np.float32)
+
+    print('Test progress: ', end='')
+    for i in range(steps):
+        print('{0}/{1} - '.format(i + 1, steps), end='')
+        start = (i) * batch_size
+        end = (i + 1) * batch_size
+        end = end if end < n_items_dataset else n_items_dataset
+
+        batch = get_batch(i, batch_size, n_items_dataset, neighbors)
+
+        X_partial_preprocessed_test_bag = np.zeros(shape=(end - start, n_features), dtype=np.float32)
+        pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
+        X_partial_preprocessed_test_bag = np.array(
+            pool.map(partial(feature_extraction_fn, feature_groups=feature_groups, neighbors=neighbors, paths=paths,
+                             center=center), batch[:]))
+        pool.close()
+        pool.join()
+
+        predicted_test[start:end] = model.predict(X_partial_preprocessed_test_bag)
+
+    X_partial_preprocessed_test_bag = None
+    gc.collect()
+    predicted_test = np.argmax(predicted_test, axis=1)
+
+    predict_mask = predicted_test.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
+    end_time = time.time()
+    print(end_time - start_time)
+
+    bigdata_gt = None
+    item_getter = itemgetter('bigdata_gt')
+    with np.load(dataset_file) as df:
+        bigdata_gt = item_getter(df)
+
+    bigdata_gt_clip = bigdata_gt
+
+    error_mask = np.logical_xor(predict_mask, bigdata_gt_clip)
+
+    temp_pred = predict_mask.reshape(predict_mask.shape[0] * predict_mask.shape[1])
+    temp_gt = bigdata_gt_clip.reshape(bigdata_gt_clip.shape[0] * bigdata_gt_clip.shape[1])
+
+    ax, cm = plot_confusion_matrix(temp_gt, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
+
+    plt.savefig('storage/' + store_with_name + '_conf_plot.pdf', bbox_inches='tight')
+
+    print(classification_report(temp_gt, temp_pred, target_names=np.array(['no forest', 'forest'])))
+
+    unique, counts = np.unique(error_mask, return_counts=True)
+    print("Test accuracy ", counts[0] / (counts[0] + counts[1]))
+
+    np.savez_compressed('storage/' + store_with_name + 'confusion_matrix.npz', cm=cm)
+
+    plt.clf()
+
+    fnf_handler.src_Z = predict_mask
+    fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction.tif')
+
+    fnf_handler.src_Z = error_mask
+    fnf_handler.writeNewFile('storage/test_' + store_with_name + '_error.tif')
+
+    fnf_handler.closeFile()
+
+    if tif_real != '':
+        real_fnf_handler = GTiffHandler()
+        real_fnf_handler.readFile(tif_real)
+
+        real_mask = np.array(real_fnf_handler.src_Z)
+
+        unique, counts = np.unique(real_mask, return_counts=True)
+        if (unique.shape[0] > 2):
+            real_mask[real_mask > 1] = 0
+
+        predict_mask_portion = predict_mask[:real_mask.shape[0], :real_mask.shape[1]]
+        bigdata_gt_portion = bigdata_gt_clip[:real_mask.shape[0], :real_mask.shape[1]]
+
+        our_error_mask = np.logical_xor(predict_mask_portion, real_mask)
+        fnf_error_mask = np.logical_xor(bigdata_gt_portion, real_mask)
+
+        temp_real = real_mask.reshape(real_mask.shape[0] * real_mask.shape[1])
+        temp_pred = predict_mask_portion.reshape(real_mask.shape[0] * real_mask.shape[1])
+        temp_gt = bigdata_gt_portion.reshape(real_mask.shape[0] * real_mask.shape[1])
+
+        ax, cm = plot_confusion_matrix(temp_real, temp_pred, np.array(['No Forest', 'Forest']), plot=True)
+        plt.savefig('storage/' + store_with_name + '_conf_plot_real_vs_pred.pdf', bbox_inches='tight')
+        print(classification_report(temp_real, temp_pred, target_names=np.array(['no forest', 'forest'])))
+        np.savez_compressed('storage/' + store_with_name + 'confusion_matrix_real_vs_pred.npz', cm=cm)
+        plt.clf()
+
+        ax, cm = plot_confusion_matrix(temp_real, temp_gt, np.array(['No Forest', 'Forest']), plot=True)
+        plt.savefig('storage/' + store_with_name + '_conf_plot_real_vs_gt.pdf', bbox_inches='tight')
+        print(classification_report(temp_real, temp_gt, target_names=np.array(['no forest', 'forest'])))
+        np.savez_compressed('storage/' + store_with_name + 'confusion_matrix_real_vs_gt.npz', cm=cm)
+        plt.clf()
+
+        unique, counts = np.unique(our_error_mask, return_counts=True)
+        print("Test our accuracy ", counts[0] / (counts[0] + counts[1]))
+
+        unique, counts = np.unique(fnf_error_mask, return_counts=True)
+        print("Test gt accuracy ", counts[0] / (counts[0] + counts[1]))
+
+        real_fnf_handler.src_Z = predict_mask_portion
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction_portion.tif')
+
+        real_fnf_handler.src_Z = our_error_mask
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_prediction_vs_real_error.tif')
+
+        real_fnf_handler.src_Z = bigdata_gt_portion
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_portion.tif')
+
+        real_fnf_handler.src_Z = fnf_error_mask
+        real_fnf_handler.writeNewFile('storage/test_' + store_with_name + '_gt_vs_real_error.tif')
+
+
+def plot_confusion_matrix(y_true, y_pred, classes,
+                          normalize=False,
+                          title=None,
+                          cmap=plt.cm.Blues,
+                          plot=True):
     """
-    This function prints the confusion matrix.
+    This function prints and plots the confusion matrix.
     Normalization can be applied by setting `normalize=True`.
     """
     if not title:
@@ -373,7 +556,36 @@ def print_confusion_matrix(y_true, y_pred, classes,
         print('Confusion matrix, without normalization')
 
     print(cm)
-    return cm
+
+    if plot:
+        fig, ax = plt.subplots()
+        im = ax.imshow(cm, interpolation='nearest', cmap=cmap)
+        ax.figure.colorbar(im, ax=ax)
+        # We want to show all ticks...
+        ax.set(xticks=np.arange(cm.shape[1]),
+               yticks=np.arange(cm.shape[0]),
+               # ... and label them with the respective list entries
+               xticklabels=classes, yticklabels=classes,
+               title=title,
+               ylabel='True label',
+               xlabel='Predicted label')
+
+        # Rotate the tick labels and set their alignment.
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+                 rotation_mode="anchor")
+
+        # Loop over data dimensions and create text annotations.
+        fmt = '.2f' if normalize else 'd'
+        thresh = cm.max() / 2.
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, format(cm[i, j], fmt),
+                        ha="center", va="center",
+                        color="white" if cm[i, j] > thresh else "black")
+        fig.tight_layout()
+        return ax, cm
+    else:
+        return cm
 
 
 def shuffle_in_unison(a):

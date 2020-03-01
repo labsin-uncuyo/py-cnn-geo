@@ -534,14 +534,14 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
     predicted_test = np.zeros(shape=(n_items_dataset,), dtype=np.uint8)
 
     print('Starting testing phase...')
-    start = time.time()
+    start_time = time.time()
 
     values_votes = np.zeros(shape=(n_items_dataset, 2), dtype=np.float32)
 
     print('Test progress: ', end='')
     for i in range(steps):
         print('{0}/{1} - '.format(i + 1, steps), end='')
-        start = (i) * batch_size
+        start = i * batch_size
         end = (i + 1) * batch_size
         end = end if end < n_items_dataset else n_items_dataset
 
@@ -555,19 +555,18 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
         pool.close()
         pool.join()
 
-        if False:
-            for model_i, model in enumerate(models):
-                if model_i == 0:
-                    batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
-                                              model.n_estimators)
-                else:
-                    batch_votes = np.add(batch_votes,
-                                         np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
-                                                     model.n_estimators))
+        for model_i, model in enumerate(models):
+            if model_i == 0:
+                batch_votes = np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                          model.n_estimators)
+            else:
+                batch_votes = np.add(batch_votes,
+                                     np.multiply(model.predict_proba(X_partial_preprocessed_test_bag),
+                                                 model.n_estimators))
 
-                # gc.collect()
+            # gc.collect()
 
-            values_votes[start:end] = batch_votes
+        values_votes[start:end] = batch_votes
 
     predicted_test = np.divide(values_votes, n_estimators)
     X_partial_preprocessed_test_bag = None
@@ -577,8 +576,8 @@ def test(model_name, dataset_file, tif_sample, tif_real, result_name, model_dire
     predicted_test = np.argmax(predicted_test, axis=1)
 
     predict_mask = predicted_test.reshape(RasterParams.FNF_MAX_X, RasterParams.FNF_MAX_Y)
-    end = time.time()
-    print(end - start)
+    end_time = time.time()
+    print(end_time - start_time)
 
     bigdata_gt = None
     item_getter = itemgetter('bigdata_gt')
