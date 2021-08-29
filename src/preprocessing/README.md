@@ -13,8 +13,9 @@ foo@bar:/workspace/py-cnn-geo/src/data/raw/train/1$ mv s26_w053_1arc_v3.tf SRTM_
 - Landsat 8 files: These files should start with the prefix "LC08_". There's no need to perform any preprocessing step, just extracting the files and then removing the compressed files.
 
 ```console
-foo@bar:/workspace/py-cnn-geo/src/data/raw/train/1$ tar -xzf LC08*.tar.gz
-foo@bar:/workspace/py-cnn-geo/src/data/raw/train/1$ rm LC08*.tar.gz
+foo@bar:/workspace/py-cnn-geo/src/data/raw/train/1$ tar -xzf LC08*.tar
+foo@bar:/workspace/py-cnn-geo/src/data/raw/train/1$ rm *_PIXEL.TIF *_RADSAT.TIF *_SAA.TIF *_SZA.TIF *_VAA.TIF *_VZA.TIF *_MTL.json *_MTL.xml
+foo@bar:/workspace/py-cnn-geo/src/data/raw/train/1$ rm LC08*.tar
 ```
 
 - JAXA Forest - No-Forest files: These files should start with the prefix "FNF_". In this example we decompressed the tar.gz file and simply added the prefix to each file:
