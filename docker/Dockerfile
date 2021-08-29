@@ -70,6 +70,7 @@ RUN conda install -y python=${python_version} && \
       redis \
       opencv-python==4.1.1.26 \
       scikit-learn==0.21.3 \
+      sklearn-pandas==1.8.0 \
       && \
     conda install \
       tensorflow-gpu==2.0.0 \
@@ -82,7 +83,6 @@ RUN conda install -y python=${python_version} && \
       notebook==6.4.3 \
       numpy==1.19.2 \
       scipy==1.5.2 \
-      sklearn-pandas==1.8.0 \
       scikit-image==0.17.2 \
       pandas==1.1.5 \
       pillow==8.3.1 \
