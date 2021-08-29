@@ -1,6 +1,6 @@
 import numpy as np
 from config import SamplesConfig, RasterParams
-from keras.utils import Sequence
+from tensorflow.keras.utils import Sequence
 
 
 class SortedPredictGenerator(Sequence):
