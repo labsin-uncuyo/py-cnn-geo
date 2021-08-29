@@ -1,24 +1,20 @@
 import sys, getopt
-import keras
+import tensorflow.keras as keras
 import gc
-import multiprocessing
 import os
 import time
 import matplotlib.pylab as plt
 import numpy as np
 
-from functools import partial
-
-from dask.array import store
 from natsort import natsorted
 from operator import itemgetter
 from os import listdir
 from os.path import isfile, join, exists
-from keras.models import Sequential, model_from_json, Model
-from keras.layers import Conv2D, Flatten, Dense
-from keras.losses import binary_crossentropy
-from keras.optimizers import Adam, RMSprop, Adamax, SGD
-from keras.callbacks import ModelCheckpoint, EarlyStopping
+from tensorflow.keras.models import Sequential, model_from_json, Model
+from tensorflow.keras.layers import Conv2D, Flatten, Dense
+from tensorflow.keras.losses import binary_crossentropy
+from tensorflow.keras.optimizers import Adam, SGD
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from sklearn.model_selection import KFold
 from sklearn.utils.multiclass import unique_labels
@@ -28,7 +24,7 @@ from config import SamplesConfig, NetworkParameters, RasterParams, DatasetConfig
 from models.index_based_generator import IndexBasedGenerator
 from models.sorted_predict_generator import SortedPredictGenerator
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # for training on gpu
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # for training on gpu
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
 OPERATION_CREATE_SAMPLES = 10
