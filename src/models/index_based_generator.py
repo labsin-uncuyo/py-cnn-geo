@@ -1,8 +1,6 @@
 import numpy as np
 from config import SamplesConfig
-from keras.utils import Sequence, to_categorical
-from keras.preprocessing.image import ImageDataGenerator
-import keras as K
+from tensorflow.keras.utils import Sequence, to_categorical
 import skimage.transform as tf
 import cv2
 
